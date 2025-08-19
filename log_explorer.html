@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Relic Telemetry Sampler & Analyzer</title>
+    <script src="https://cdn-tailwindcss.vercel.app/"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Flatpickr CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <!-- FIXED: Flatpickr JS moved to the head -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border-left-color: #10b981;
+            animation: spin 2s linear infinite; /* Slowed down animation */
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .modal-overlay, .modal-content { transition: all 0.3s ease; }
+        
+        @keyframes flash {
+            0%, 100% { background-color: #111827; }
+            50% { background-color: #1f2937; }
+        }
+        .flash-update { animation: flash 0.8s ease-in-out; }
+
+        /* Styles for the attribute table */
+        .attribute-table th, .attribute-table td {
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .attribute-table th {
+            background-color: #1f2937; /* gray-800 */
+        }
+        .attribute-table tbody tr:hover {
+            background-color: #1f2937; /* gray-800 */
+        }
+         /* Hide spinners from number inputs */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        /* Custom scrollbar styles */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #374151; /* gray-700 */
+            border-radius: 20px;
+            border: 3px solid #1f2937; /* gray-800 */
+        }
+        .custom-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: #374151 transparent;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="mb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-4xl font-bold text-emerald-400">Telemetry Sampler & Analyzer</h1>
+                <p class="text-gray-400 mt-2">Continuously sample log data from New Relic and analyze it on demand.</p>
+            </div>
+            <div id="headerStatusContainer">
+                <button id="headerStatusActive" class="hidden items-center space-x-3 p-2 rounded-lg hover:bg-gray-800 transition">
+                    <div class="spinner"></div>
+                    <span class="text-emerald-400 font-semibold">Sampling...</span>
+                    <div id="stopFromHeader" class="w-4 h-4 bg-red-600 rounded hover:bg-red-500"></div>
+                </button>
+                <button id="headerStatusInactive" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-800 transition">
+                    <svg class="w-6 h-6 text-emerald-600" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                    <span class="text-gray-400 font-semibold">Start Sampling</span>
+                </button>
+            </div>
+        </header>
+
+        <div id="errorMessage" class="hidden bg-red-900 border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6"></div>
+
+        <!-- Tabbed Interface -->
+        <div>
+            <!-- Tab Buttons -->
+            <div class="border-b border-gray-700">
+                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                    <button data-tab="configuration" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-emerald-400 border-emerald-500">Configuration</button>
+                    <button data-tab="analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Analysis</button>
+                    <button data-tab="livetail" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Live Tail</button>
+                    <button data-tab="recommendations" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Recommendations</button>
+                </nav>
+            </div>
+
+            <!-- Tab Panels -->
+            <div class="pt-6">
+                <div id="configurationPanel" class="tab-panel">
+                    <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 max-w-2xl mx-auto">
+                        <div class="space-y-4">
+                            <div>
+                                <label for="apiKey" class="block text-sm font-medium text-gray-300 mb-1">New Relic API Key</label>
+                                <input type="password" id="apiKey" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="NRAK-..." required>
+                            </div>
+                            <div>
+                                <label for="accountId" class="block text-sm font-medium text-gray-300 mb-1">New Relic Account ID</label>
+                                <input type="number" id="accountId" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="e.g., 1234567" required>
+                            </div>
+                            <div>
+                                <label for="nrqlQuery" class="block text-sm font-medium text-gray-300 mb-1">Base NRQL Query</label>
+                                <textarea id="nrqlQuery" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white font-mono text-sm focus:ring-2 focus:ring-emerald-500" placeholder="SELECT * FROM Log WHERE service.name = 'my-service'"></textarea>
+                            </div>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label for="sampleFrequency" class="block text-xs font-medium text-gray-400 mb-1">Frequency (s)</label>
+                                    <input type="number" id="sampleFrequency" value="30" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                                <div>
+                                     <label for="sampleWindow" class="block text-xs font-medium text-gray-400 mb-1">Window (s)</label>
+                                    <input type="number" id="sampleWindow" value="10" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                                <div>
+                                     <label for="limitClause" class="block text-xs font-medium text-gray-400 mb-1">Limit</label>
+                                    <input type="number" id="limitClause" value="5000" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <div>
+                                <label for="arbitraryStartTime" class="block text-sm font-medium text-gray-300 mb-1">Arbitrary Start Time (Optional)</label>
+                                <div class="relative">
+                                    <input type="text" id="arbitraryStartTime" name="arbitraryStartTime" placeholder="Default: NOW" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
+                                    <div id="startTimeIcon" class="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer">
+                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Set a past date/time to replay historical data.</p>
+                            </div>
+                            <div id="timeStats" class="hidden pt-4 space-y-2 text-sm">
+                                <div>
+                                    <span class="font-semibold text-gray-400">First Sample:</span>
+                                    <span id="firstSampleTime" class="text-gray-300 float-right">N/A</span>
+                                </div>
+                                <div>
+                                    <span class="font-semibold text-gray-400">Most Recent Sample:</span>
+                                    <span id="lastSampleTime" class="text-gray-300 float-right">N/A</span>
+                                </div>
+                                <div>
+                                    <span class="font-semibold text-gray-400">Time Coverage:</span>
+                                    <span id="timeCoverage" class="text-gray-300 float-right">N/A</span>
+                                </div>
+                            </div>
+                            <div class="flex space-x-4 pt-4">
+                                <button id="samplingToggle" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md transition flex items-center justify-center">Start Sampling</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="analysisPanel" class="tab-panel hidden">
+                     <div id="analysisResults" class="hidden bg-gray-900 p-4 rounded-xl border border-gray-700">
+                        <div class="flex justify-between items-center mb-4">
+                             <h2 class="text-2xl font-semibold text-emerald-400">Real-Time Analysis</h2>
+                             <div class="text-right">
+                                <div class="text-sm text-gray-400">Samples Collected</div>
+                                <div id="totalSamples" class="text-xl font-bold text-emerald-400">0</div>
+                             </div>
+                        </div>
+                        <div id="analysisContent" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"></div>
+                    </div>
+                </div>
+
+                <div id="livetailPanel" class="tab-panel hidden">
+                     <div class="bg-gray-900 p-4 rounded-xl border border-gray-700">
+                        <div class="flex flex-wrap justify-between items-center mb-4 border-b border-gray-700 pb-3 gap-4">
+                            <h2 class="text-2xl font-semibold">Live Tail</h2>
+                            <div class="flex items-center space-x-4">
+                                <div>
+                                    <label for="sizeFilter" class="text-xs text-gray-400">Min Size (Bytes)</label>
+                                    <input type="number" id="sizeFilter" class="w-24 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-white text-sm">
+                                </div>
+                                <div>
+                                    <label for="attrCountFilter" class="text-xs text-gray-400">Min Attrs</label>
+                                    <input type="number" id="attrCountFilter" class="w-20 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-white text-sm">
+                                </div>
+                                <div class="flex items-center pt-4">
+                                    <input type="checkbox" id="multilineFilter" class="h-4 w-4 text-emerald-600 bg-gray-800 border-gray-600 rounded focus:ring-emerald-500">
+                                    <label for="multilineFilter" class="ml-2 text-sm text-gray-300">Show Only Multiline</label>
+                                </div>
+                                <div id="statusIndicator" class="flex items-center space-x-2 text-gray-500">
+                                    <div class="spinner hidden"></div>
+                                    <span>Idle</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="logContainer" class="h-[40rem] overflow-y-auto font-mono text-xs pr-2">
+                            <p class="text-gray-500 text-center py-10">Start sampling to see live log data.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="recommendationsPanel" class="tab-panel hidden">
+                    <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 text-center">
+                        <p class="text-gray-400">Recommendations feature coming soon.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="attributeModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
+        <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 id="modalTitle" class="text-xl font-semibold text-emerald-400">Attribute Example</h3>
+                <button class="close-modal text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div id="modalBody" class="p-6 font-mono text-sm bg-gray-950 rounded-b-xl max-h-[60vh] overflow-auto"></div>
+        </div>
+    </div>
+
+    <div id="groupByModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
+        <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-md m-4 transform scale-95">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 class="text-xl font-semibold text-emerald-400">Configure Breakdown Attribute</h3>
+                <button class="close-modal text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div id="groupByModalBody" class="p-6 max-h-[60vh] overflow-y-auto"></div>
+            <div class="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700 text-right">
+                 <button id="applyGroupBy" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md transition">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let samplingInterval;
+            let allLogs = [];
+            let isSampling = false;
+            let isLiveTailVisible = false;
+            let countByAttribute = 'level';
+            let bytesGroupByAttribute = 'level';
+            let allFoundAttributes = new Set();
+            let attributeStats = {};
+            let sizeThreshold = Infinity;
+            let attrCountThreshold = Infinity;
+            let timeOffset = 0;
+
+            const UIElements = {};
+
+            const openModal = (modalElement) => {
+                modalElement.classList.remove('hidden');
+            };
+
+            const closeModal = (modalElement) => {
+                modalElement.classList.add('hidden');
+            };
+
+            window.showExample = (logIndex, highlightedKey = null) => {
+                const log = allLogs[logIndex];
+                if (!log) return;
+
+                const { modal, title, body } = UIElements.attributeModal;
+                title.textContent = highlightedKey ? `Largest Example for: ${highlightedKey}` : 'Full Log Payload';
+                
+                let jsonString = JSON.stringify(log, null, 2);
+                if (highlightedKey) {
+                    const escapedAttrName = highlightedKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`^(\\s*"${escapedAttrName}".*?)(,)?$`, 'gm');
+                    jsonString = jsonString.replace(regex, (match) => {
+                        return `<span class="text-emerald-400 font-bold text-base">${match}</span>`;
+                    });
+                }
+                body.innerHTML = `<pre class="whitespace-pre-wrap break-all text-sm">${jsonString}</pre>`;
+                openModal(modal);
+            };
+
+            window.openGroupByModal = (type) => {
+                const { modal, body } = UIElements.groupByModal;
+                modal.dataset.configType = type;
+                const currentAttr = type === 'count' ? countByAttribute : bytesGroupByAttribute;
+                const topAttributes = [...allFoundAttributes].sort().slice(0, 100);
+                
+                body.innerHTML = topAttributes.map(attr => `
+                    <label class="flex items-center space-x-3 p-2 hover:bg-gray-800 rounded-md">
+                        <input type="radio" name="groupByAttr" value="${attr}" class="form-radio h-4 w-4 text-emerald-600 bg-gray-700 border-gray-600" ${currentAttr === attr ? 'checked' : ''}>
+                        <span class="font-mono text-sm">${attr}</span>
+                    </label>
+                `).join('');
+
+                openModal(modal);
+            };
+            
+            window.showUniqueValues = (attrName) => {
+                const { modal, title, body } = UIElements.attributeModal;
+                title.textContent = `Unique Values for: ${attrName}`;
+                const uniques = attributeStats[attrName]?.uniques;
+                if (uniques) {
+                    const listItems = [...uniques].map(val => `<div class="p-1 border-b border-gray-800">${val}</div>`).join('');
+                    body.innerHTML = `<div class="text-gray-300">${listItems}</div>`;
+                } else {
+                    body.textContent = 'No unique values found.';
+                }
+                openModal(modal);
+            };
+
+            Object.assign(UIElements, {
+                apiKey: document.getElementById('apiKey'),
+                accountId: document.getElementById('accountId'),
+                nrqlQuery: document.getElementById('nrqlQuery'),
+                sampleFrequency: document.getElementById('sampleFrequency'),
+                sampleWindow: document.getElementById('sampleWindow'),
+                limitClause: document.getElementById('limitClause'),
+                arbitraryStartTime: document.getElementById('arbitraryStartTime'),
+                samplingToggle: document.getElementById('samplingToggle'),
+                errorMessage: document.getElementById('errorMessage'),
+                logContainer: document.getElementById('logContainer'),
+                statusIndicator: document.getElementById('statusIndicator'),
+                spinner: document.querySelector('#statusIndicator .spinner'),
+                statusText: document.querySelector('#statusIndicator span'),
+                analysisResults: document.getElementById('analysisResults'),
+                analysisContent: document.getElementById('analysisContent'),
+                totalSamples: document.getElementById('totalSamples'),
+                timeStats: document.getElementById('timeStats'),
+                firstSampleTime: document.getElementById('firstSampleTime'),
+                lastSampleTime: document.getElementById('lastSampleTime'),
+                timeCoverage: document.getElementById('timeCoverage'),
+                tabButtons: document.querySelectorAll('.tab-button'),
+                tabPanels: document.querySelectorAll('.tab-panel'),
+                sizeFilter: document.getElementById('sizeFilter'),
+                attrCountFilter: document.getElementById('attrCountFilter'),
+                multilineFilter: document.getElementById('multilineFilter'),
+                headerStatusActive: document.getElementById('headerStatusActive'),
+                headerStatusInactive: document.getElementById('headerStatusInactive'),
+                stopFromHeader: document.getElementById('stopFromHeader'),
+                attributeModal: {
+                    modal: document.getElementById('attributeModal'),
+                    closeButton: document.querySelector('#attributeModal .close-modal'),
+                    overlay: document.querySelector('#attributeModal .modal-overlay'),
+                    title: document.getElementById('modalTitle'),
+                    body: document.getElementById('modalBody'),
+                },
+                groupByModal: {
+                    modal: document.getElementById('groupByModal'),
+                    closeButton: document.querySelector('#groupByModal .close-modal'),
+                    overlay: document.querySelector('#groupByModal .modal-overlay'),
+                    body: document.getElementById('groupByModalBody'),
+                    applyButton: document.getElementById('applyGroupBy'),
+                }
+            });
+
+            const flatpickrConfig = {
+                enableTime: true,
+                dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "M j, Y h:i K",
+            };
+            const startTimePicker = flatpickr("#arbitraryStartTime", flatpickrConfig);
+            document.getElementById('startTimeIcon').addEventListener('click', () => startTimePicker.toggle());
+
+            const setStatus = (text, spinning) => {
+                UIElements.statusText.textContent = text;
+                UIElements.spinner.classList.toggle('hidden', !spinning);
+            };
+
+            const fetchLogs = async () => {
+                const apiKey = UIElements.apiKey.value;
+                const accountId = UIElements.accountId.value;
+                const baseQuery = UIElements.nrqlQuery.value;
+                const windowSeconds = parseInt(UIElements.sampleWindow.value, 10);
+                const limit = parseInt(UIElements.limitClause.value, 10);
+                
+                setStatus('Fetching...', true);
+                const now = Date.now();
+                const untilTimestamp = now - timeOffset;
+                const sinceTimestamp = untilTimestamp - (windowSeconds * 1000);
+                const until = Math.floor(untilTimestamp / 1000);
+                const since = Math.floor(sinceTimestamp / 1000);
+
+                const finalQuery = `${baseQuery} SINCE ${since} UNTIL ${until} LIMIT ${limit}`;
+
+                try {
+                    const response = await fetch('http://127.0.0.1:5002/query', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            apiKey,
+                            query: `query($accountId: Int!, $nrql: Nrql!) { actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } } }`,
+                            variables: { accountId: parseInt(accountId), nrql: finalQuery }
+                        })
+                    });
+
+                    const jsonResponse = await response.json();
+                    if (!response.ok || jsonResponse.errors) {
+                        throw new Error(jsonResponse.error || jsonResponse.errors.map(e => e.message).join(', '));
+                    }
+                    
+                    const newLogs = jsonResponse.data.actor.account.nrql.results;
+                    if (newLogs.length > 0) {
+                        allLogs.push(...newLogs);
+                        UIElements.totalSamples.textContent = allLogs.length;
+                        if (isLiveTailVisible) {
+                            renderLogs(allLogs);
+                        }
+                        analyzeLogs();
+                    }
+                    setStatus('Sampling...', true);
+                } catch (err) {
+                    showError(err.message);
+                    toggleSampling();
+                }
+            };
+
+            const toggleSampling = () => {
+                const configInputs = [UIElements.apiKey, UIElements.accountId, UIElements.nrqlQuery, UIElements.sampleFrequency, UIElements.sampleWindow, UIElements.limitClause, UIElements.arbitraryStartTime];
+                if (!isSampling) { // STARTING
+                    const frequency = parseInt(UIElements.sampleFrequency.value, 10);
+                    const windowVal = parseInt(UIElements.sampleWindow.value, 10);
+                    if (windowVal > frequency) {
+                        showError("Sample window cannot be greater than the frequency.");
+                        return;
+                    }
+                    if (!UIElements.apiKey.value || !UIElements.accountId.value || !UIElements.nrqlQuery.value) {
+                         showError("API Key, Account ID, and Base Query are required.");
+                         return;
+                    }
+
+                    isSampling = true;
+                    const startTimeValue = UIElements.arbitraryStartTime.value;
+                    timeOffset = startTimeValue ? Date.now() - new Date(startTimeValue).getTime() : 0;
+
+                    allLogs = []; 
+                    allFoundAttributes = new Set();
+                    attributeStats = {};
+                    sizeThreshold = Infinity;
+                    attrCountThreshold = Infinity;
+                    UIElements.logContainer.innerHTML = '';
+                    UIElements.totalSamples.textContent = '0';
+                    UIElements.analysisResults.classList.add('hidden');
+                    UIElements.timeStats.classList.remove('hidden');
+                    [UIElements.firstSampleTime, UIElements.lastSampleTime, UIElements.timeCoverage].forEach(el => el.textContent = 'N/A');
+                    hideError();
+                    fetchLogs();
+                    const frequencyMs = frequency * 1000;
+                    samplingInterval = setInterval(fetchLogs, frequencyMs);
+
+                    UIElements.samplingToggle.textContent = 'Stop Sampling';
+                    UIElements.samplingToggle.classList.replace('bg-emerald-600', 'bg-red-600');
+                    UIElements.samplingToggle.classList.replace('hover:bg-emerald-700', 'hover:bg-red-700');
+                    configInputs.forEach(el => el.disabled = true);
+                    UIElements.headerStatusActive.classList.remove('hidden');
+                    UIElements.headerStatusActive.classList.add('flex');
+                    UIElements.headerStatusInactive.classList.add('hidden');
+
+                } else { // STOPPING
+                    isSampling = false;
+                    clearInterval(samplingInterval);
+                    samplingInterval = null;
+                    setStatus('Idle', false);
+
+                    UIElements.samplingToggle.textContent = 'Start Sampling';
+                    UIElements.samplingToggle.classList.replace('bg-red-600', 'bg-emerald-600');
+                    UIElements.samplingToggle.classList.replace('hover:bg-red-700', 'hover:bg-emerald-700');
+                    configInputs.forEach(el => el.disabled = false);
+                    UIElements.headerStatusActive.classList.add('hidden');
+                    UIElements.headerStatusActive.classList.remove('flex');
+                    UIElements.headerStatusInactive.classList.remove('hidden');
+                }
+            };
+
+            const renderLogs = (logs) => {
+                const sizeFilter = parseInt(UIElements.sizeFilter.value, 10) || 0;
+                const attrCountFilter = parseInt(UIElements.attrCountFilter.value, 10) || 0;
+                const multilineOnly = UIElements.multilineFilter.checked;
+
+                const filteredLogs = logs.filter(log => {
+                    const size = JSON.stringify(log).length;
+                    const attrCount = Object.keys(log).length;
+                    const isMultiline = log.message && String(log.message).endsWith('\n');
+                    
+                    if (multilineOnly && !isMultiline) return false;
+                    return size >= sizeFilter && attrCount >= attrCountFilter;
+                });
+
+                UIElements.logContainer.innerHTML = '';
+                const logsToRender = filteredLogs.slice(-1000);
+                const fragment = document.createDocumentFragment();
+                logsToRender.forEach((log) => {
+                    const originalIndex = allLogs.indexOf(log);
+                    const logElement = document.createElement('div');
+                    logElement.className = 'p-2 border-b border-gray-700 cursor-pointer hover:bg-gray-800';
+                    logElement.onclick = () => showExample(originalIndex);
+
+                    const size = JSON.stringify(log).length;
+                    const attrCount = Object.keys(log).length;
+                    const isSizeOutlier = size >= sizeThreshold;
+                    const isAttrCountOutlier = attrCount >= attrCountThreshold;
+                    const isMultiline = log.message && String(log.message).endsWith('\n');
+
+                    let truncatedLog = {};
+                    for(const [key, value] of Object.entries(log)) {
+                        truncatedLog[key] = String(value).length > 50 ? String(value).substring(0, 50) + '...' : value;
+                    }
+                    let payloadString = JSON.stringify(truncatedLog);
+                    if (payloadString.length > 1000) {
+                        payloadString = payloadString.substring(0, 1000) + '...';
+                    }
+
+                    logElement.innerHTML = `
+                        <div class="flex items-center text-xs text-gray-400 mb-1">
+                            <span class="flex-grow">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                            ${isMultiline ? `<span class="text-red-500 font-bold mr-4">Multiline</span>` : ''}
+                            <span class="${isSizeOutlier ? 'text-red-500 font-bold' : ''} mr-4">Size: ${size} B</span>
+                            <span class="${isAttrCountOutlier ? 'text-red-500 font-bold' : ''}">Attrs: ${attrCount}</span>
+                        </div>
+                        <div class="text-gray-300 whitespace-pre-wrap break-all text-xs">${payloadString}</div>
+                    `;
+                    fragment.appendChild(logElement);
+                });
+                UIElements.logContainer.appendChild(fragment);
+            };
+
+            const analyzeLogs = () => {
+                if (allLogs.length === 0) return;
+
+                const stats = {
+                    countByGroup: {}, byteByGroup: {}, 
+                    anomalies: new Set(), multilineMessages: 0, totalVolume: 0,
+                    firstTimestamp: allLogs[0].timestamp, lastTimestamp: allLogs.length > 1 ? allLogs[allLogs.length - 1].timestamp : null
+                };
+                
+                attributeStats = {};
+                allFoundAttributes = new Set();
+                
+                allLogs.forEach(log => {
+                    const countGroupValue = log[countByAttribute] || 'Unknown';
+                    const bytesGroupValue = log[bytesGroupByAttribute] || 'Unknown';
+                    let logByteSize = 0;
+
+                    stats.countByGroup[countGroupValue] = (stats.countByGroup[countGroupValue] || 0) + 1;
+                    if (log.message && String(log.message).endsWith('\n')) {
+                        stats.multilineMessages++;
+                    }
+
+                    for (const [key, value] of Object.entries(log)) {
+                        allFoundAttributes.add(key);
+                        const valStr = String(value);
+                        const attrSize = key.length + valStr.length;
+                        logByteSize += attrSize;
+
+                        attributeStats[key] = (attributeStats[key] || { totalSize: 0, count: 0, maxSize: 0, uniques: new Set() });
+                        attributeStats[key].totalSize += attrSize;
+                        attributeStats[key].count++;
+                        if (attributeStats[key].uniques.size <= 100) {
+                            attributeStats[key].uniques.add(valStr);
+                        }
+                        if (attrSize > attributeStats[key].maxSize) {
+                            attributeStats[key].maxSize = attrSize;
+                        }
+
+                        if (valStr.length > 100 && !/\s/.test(valStr) && (valStr.match(/[a-zA-Z]/g)?.length || 0) / valStr.length < 0.5) {
+                            stats.anomalies.add(key);
+                        }
+                    }
+                    stats.byteByGroup[bytesGroupValue] = (stats.byteByGroup[bytesGroupValue] || 0) + logByteSize;
+                    stats.totalVolume += logByteSize;
+                });
+                
+                const allSizes = allLogs.map(log => JSON.stringify(log).length);
+                const allAttrCounts = allLogs.map(log => Object.keys(log).length);
+                allSizes.sort((a, b) => a - b);
+                allAttrCounts.sort((a, b) => a - b);
+                const percentileIndex = Math.floor(allLogs.length * 0.95);
+                sizeThreshold = allSizes[percentileIndex] || Infinity;
+                attrCountThreshold = allAttrCounts[percentileIndex] || Infinity;
+
+                renderAnalysis(stats);
+            };
+
+            const renderAnalysis = (stats) => {
+                const formatBytes = (bytes) => bytes > 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes.toFixed(1)} B`;
+                const topN = (obj, formatter = (v) => v) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => [k, formatter(v)]);
+
+                UIElements.firstSampleTime.textContent = new Date(stats.firstTimestamp).toLocaleString();
+                if (stats.lastTimestamp) {
+                    UIElements.lastSampleTime.textContent = new Date(stats.lastTimestamp).toLocaleString();
+                    const coverageSeconds = (stats.lastTimestamp - stats.firstTimestamp) / 1000;
+                    if (coverageSeconds >= 60) {
+                        const hours = Math.floor(coverageSeconds / 3600);
+                        const minutes = Math.floor((coverageSeconds % 3600) / 60);
+                        const seconds = Math.floor(coverageSeconds % 60);
+                        UIElements.timeCoverage.textContent = `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+                    } else {
+                         UIElements.timeCoverage.textContent = '--';
+                    }
+                } else {
+                    UIElements.lastSampleTime.textContent = 'N/A';
+                    UIElements.timeCoverage.textContent = '--';
+                }
+
+
+                const createStatCard = (title, data, configType = null) => {
+                    let configHtml = configType ? `<button onclick="openGroupByModal('${configType}')" class="ml-2 text-emerald-400 hover:text-emerald-300 text-xs">[Configure...]</button>` : '';
+                    let content = '';
+                    if (Object.keys(data).length > 0) {
+                        content = Object.entries(data).sort((a,b) => b[1] - a[1]).map(([key, val]) => `<div class="flex justify-between"><span>${key}:</span><span class="font-semibold text-emerald-400">${val}</span></div>`).join('');
+                    } else { content = '<p class="text-gray-500">No data</p>'; }
+                    return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml}</h3><div class="space-y-1">${content}</div></div>`;
+                };
+
+                const attributeData = Object.keys(attributeStats).map(key => ({
+                    name: key,
+                    frequency: (attributeStats[key].count / allLogs.length) * 100,
+                    avgSize: attributeStats[key].totalSize / attributeStats[key].count,
+                    maxSize: attributeStats[key].maxSize,
+                    cumulativeContrib: (attributeStats[key].totalSize / stats.totalVolume) * 100,
+                    totalSize: attributeStats[key].totalSize,
+                    uniqueCount: attributeStats[key].uniques.size
+                })).sort((a, b) => b.totalSize - a.totalSize).slice(0, 50);
+
+                const attributeTable = `
+                    <div class="md:col-span-2 bg-gray-800 p-3 rounded-lg">
+                        <h3 class="font-semibold text-gray-300 mb-2">Top Attributes by Cumulative Size</h3>
+                        <div class="h-48 overflow-y-auto custom-scrollbar">
+                            <table class="w-full text-left text-sm attribute-table">
+                                <thead><tr><th>Attribute</th><th>Freq.</th><th>Cum. Contrib.</th><th>Avg Size</th><th>Max Size</th><th>Uniques</th></tr></thead>
+                                <tbody id="attributeTableBody">
+                                    ${attributeData.map(attr => `
+                                        <tr>
+                                            <td><button class="font-mono text-emerald-400 hover:text-emerald-300 underline" data-attr-name="${attr.name}" data-type="table">${attr.name}</button></td>
+                                            <td>${attr.frequency.toFixed(1)}%</td>
+                                            <td>${attr.cumulativeContrib.toFixed(1)}%</td>
+                                            <td>${formatBytes(attr.avgSize)}</td>
+                                            <td>${formatBytes(attr.maxSize)}</td>
+                                            <td><button class="text-emerald-400 hover:text-emerald-300 underline" data-attr-name="${attr.name}" data-type="uniques">${attr.uniqueCount > 100 ? '100+' : attr.uniqueCount}</button></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+
+                UIElements.analysisContent.innerHTML = `
+                    ${createStatCard(`Count Breakdown by ${countByAttribute}`, stats.countByGroup, 'count')}
+                    ${createStatCard(`Bytes Breakdown by ${bytesGroupByAttribute}`, Object.fromEntries(topN(stats.byteByGroup, formatBytes)), 'bytes')}
+                    ${attributeTable}
+                    <div class="bg-gray-800 p-3 rounded-lg md:col-span-2">
+                        <h3 class="font-semibold text-gray-300 mb-2">Anomalies</h3>
+                        <div class="space-y-1">
+                            <div class="flex justify-between">
+                                <button class="text-left hover:text-emerald-300" data-attr-name="message" data-type="multiline">Multiline Messages:</button>
+                                <span class="font-semibold text-emerald-400">${stats.multilineMessages}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Potentially Garbled Keys:</span>
+                                <span class="font-semibold text-emerald-400">${stats.anomalies.size > 0 ? [...stats.anomalies].map(key => `<button class="hover:text-emerald-300" data-attr-name="${key}" data-type="garbled">${key}</button>`).join(', ') : 'None'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                UIElements.analysisResults.classList.remove('hidden');
+                UIElements.analysisResults.classList.add('flash-update');
+                setTimeout(() => UIElements.analysisResults.classList.remove('flash-update'), 800);
+            };
+
+            const showError = (msg) => {
+                UIElements.errorMessage.textContent = `Error: ${msg}`;
+                UIElements.errorMessage.classList.remove('hidden');
+            };
+            const hideError = () => UIElements.errorMessage.classList.add('hidden');
+
+            UIElements.samplingToggle.addEventListener('click', toggleSampling);
+            
+            UIElements.tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tab = button.dataset.tab;
+                    
+                    UIElements.tabButtons.forEach(btn => {
+                        btn.classList.remove('text-emerald-400', 'border-emerald-500');
+                        btn.classList.add('text-gray-400', 'border-transparent', 'hover:text-gray-300', 'hover:border-gray-500');
+                    });
+                    button.classList.add('text-emerald-400', 'border-emerald-500');
+                    button.classList.remove('text-gray-400', 'border-transparent', 'hover:text-gray-300', 'hover:border-gray-500');
+
+                    UIElements.tabPanels.forEach(panel => {
+                        panel.classList.add('hidden');
+                    });
+                    document.getElementById(`${tab}Panel`).classList.remove('hidden');
+
+                    isLiveTailVisible = (tab === 'livetail');
+                    if(isLiveTailVisible && isSampling) {
+                        renderLogs(allLogs);
+                    }
+                });
+            });
+            
+            UIElements.sizeFilter.addEventListener('input', () => renderLogs(allLogs));
+            UIElements.attrCountFilter.addEventListener('input', () => renderLogs(allLogs));
+            UIElements.multilineFilter.addEventListener('change', () => renderLogs(allLogs));
+
+            UIElements.analysisContent.addEventListener('click', (e) => {
+                const target = e.target.closest('button');
+                if (!target || !target.dataset.attrName) return;
+
+                const attrName = target.dataset.attrName;
+                const type = target.dataset.type;
+
+                if (type === 'uniques') {
+                    showUniqueValues(attrName);
+                } else {
+                    const logIndex = allLogs.findIndex(log => log.hasOwnProperty(attrName));
+                    showExample(logIndex, attrName);
+                }
+            });
+
+            UIElements.attributeModal.closeButton.addEventListener('click', () => closeModal(UIElements.attributeModal.modal));
+            UIElements.attributeModal.overlay.addEventListener('click', () => closeModal(UIElements.attributeModal.modal));
+            UIElements.groupByModal.closeButton.addEventListener('click', () => closeModal(UIElements.groupByModal.modal));
+            UIElements.groupByModal.overlay.addEventListener('click', () => closeModal(UIElements.groupByModal.modal));
+            UIElements.groupByModal.applyButton.addEventListener('click', () => {
+                const modal = UIElements.groupByModal.modal;
+                const selected = document.querySelector('input[name="groupByAttr"]:checked');
+                if (selected) {
+                    if (modal.dataset.configType === 'count') {
+                        countByAttribute = selected.value;
+                    } else {
+                        bytesGroupByAttribute = selected.value;
+                    }
+                    analyzeLogs();
+                }
+                closeModal(modal);
+            });
+            
+            UIElements.headerStatusInactive.addEventListener('click', toggleSampling);
+            UIElements.stopFromHeader.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleSampling();
+            });
+        });
+    </script>
+</body>
+</html>
