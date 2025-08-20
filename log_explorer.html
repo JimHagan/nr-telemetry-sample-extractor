@@ -6,9 +6,7 @@
     <title>New Relic Telemetry Sampler & Analyzer</title>
     <script src="https://cdn-tailwindcss.vercel.app/"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Flatpickr CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <!-- Flatpickr JS -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -92,7 +90,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center space-x-3 p-2 rounded-lg">
+                    <div id="samplingStatusIndicator" class="flex items-center space-x-3 p-2 rounded-lg">
                         <div class="spinner"></div>
                         <span class="text-emerald-400 font-semibold">Sampling...</span>
                         <button id="stopFromHeader" class="w-4 h-4 bg-red-600 rounded hover:bg-red-500"></button>
@@ -107,9 +105,7 @@
 
         <div id="errorMessage" class="hidden bg-red-900 border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6"></div>
 
-        <!-- Tabbed Interface -->
         <div>
-            <!-- Tab Buttons -->
             <div class="border-b border-gray-700">
                 <nav class="-mb-px flex space-x-6" aria-label="Tabs">
                     <button data-tab="configuration" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-emerald-400 border-emerald-500">Configuration</button>
@@ -119,7 +115,6 @@
                 </nav>
             </div>
 
-            <!-- Tab Panels -->
             <div class="pt-6">
                 <div id="configurationPanel" class="tab-panel">
                     <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 max-w-2xl mx-auto">
@@ -242,7 +237,6 @@
         </div>
     </div>
 
-    <!-- Modals -->
     <div id="attributeModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
         <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
         <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
@@ -443,23 +437,39 @@
                     const queries = [
                         runNerdGraphQuery(apiKey, accountId, finalQuery)
                     ];
+                    
+                    // --- BUG FIX #3: ROBUST PROMISE HANDLING ---
+                    let hasCountQuery = false;
                     if (countQuery) {
                         queries.push(runNerdGraphQuery(apiKey, accountId, countQuery));
+                        hasCountQuery = true;
                     }
+
+                    let needsAccountName = false;
                     if (!accountName) {
                         queries.push(fetchAccountName(apiKey, accountId));
+                        needsAccountName = true;
                     }
 
+                    const results = await Promise.all(queries);
+                    let resultIndex = 0;
 
-                    const [logResults, countResults, nameResult] = await Promise.all(queries);
+                    const newLogs = results[resultIndex++];
                     
-                    if (nameResult) {
-                        accountName = nameResult;
-                        UIElements.headerAccountName.textContent = accountName;
+                    let rateCount = null;
+                    if (hasCountQuery) {
+                        const countResults = results[resultIndex++];
+                        rateCount = countResults ? countResults[0]?.count : null;
                     }
 
-                    const newLogs = logResults;
-                    let rateCount = countResults ? countResults[0]?.count : null;
+                    if (needsAccountName) {
+                        const nameResult = results[resultIndex++];
+                        if (nameResult) {
+                            accountName = nameResult;
+                            UIElements.headerAccountName.textContent = accountName;
+                        }
+                    }
+                    // --- END BUG FIX #3 ---
 
                     if (newLogs.length > 0) {
                         allLogs.push(...newLogs);
@@ -547,6 +557,13 @@
                     UIElements.timeStats.classList.remove('hidden');
                     [UIElements.firstSampleTime, UIElements.lastSampleTime, UIElements.timeCoverage].forEach(el => el.textContent = 'N/A');
                     hideError();
+                    
+                    // --- FIX FOR BUG #1: Ensure indicator is visible on start ---
+                    const samplingIndicator = document.getElementById('samplingStatusIndicator');
+                    if (samplingIndicator) {
+                        samplingIndicator.classList.remove('hidden');
+                    }
+                    
                     fetchLogs();
                     const frequencyMs = frequency * 1000;
                     samplingInterval = setInterval(fetchLogs, frequencyMs);
@@ -569,9 +586,14 @@
                     UIElements.samplingToggle.classList.replace('bg-red-600', 'bg-emerald-600');
                     UIElements.samplingToggle.classList.replace('hover:bg-red-700', 'hover:bg-emerald-700');
                     configInputs.forEach(el => el.disabled = false);
-                    UIElements.headerActiveInfo.classList.add('hidden');
-                    UIElements.headerActiveInfo.classList.remove('flex');
+                    
+                    // --- FIX FOR BUG #1: Hide only the indicator, not the whole header ---
+                    const samplingIndicator = document.getElementById('samplingStatusIndicator');
+                    if (samplingIndicator) {
+                        samplingIndicator.classList.add('hidden');
+                    }
                     UIElements.headerStatusInactive.classList.remove('hidden');
+                    // Note: We no longer hide UIElements.headerActiveInfo here.
                 }
             };
 
@@ -937,63 +959,66 @@
                 downloadData('csv');
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
-        });
-
-        function downloadData(format) {
-            if (allLogs.length === 0) {
-                alert("No events to download.");
-                return;
-            }
             
-            const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
-            const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
-            const filename = `${accountName || 'account'}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
-            let content = '';
-            let mimeType = '';
+            // --- BUG FIX #2: MOVE FUNCTIONS INTO SCOPE ---
+            function downloadData(format) {
+                if (allLogs.length === 0) {
+                    alert("No events to download.");
+                    return;
+                }
+                
+                const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
+                const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
+                const filename = `${accountName || 'account'}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
+                let content = '';
+                let mimeType = '';
 
-            if (format === 'json') {
-                content = JSON.stringify(allLogs, null, 2);
-                mimeType = 'application/json';
-            } else if (format === 'csv') {
-                content = convertToCSV(allLogs);
-                mimeType = 'text/csv';
+                if (format === 'json') {
+                    content = JSON.stringify(allLogs, null, 2);
+                    mimeType = 'application/json';
+                } else if (format === 'csv') {
+                    content = convertToCSV(allLogs);
+                    mimeType = 'text/csv';
+                }
+
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
 
-            const blob = new Blob([content], { type: mimeType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
+            function convertToCSV(data) {
+                if (data.length === 0) return '';
+                const headers = [...allFoundAttributes];
+                const csvRows = [];
+                csvRows.push(headers.join(','));
 
-        function convertToCSV(data) {
-            if (data.length === 0) return '';
-            const headers = [...allFoundAttributes];
-            const csvRows = [];
-            csvRows.push(headers.join(','));
-
-            for (const row of data) {
-                const values = headers.map(header => {
-                    let value = row[header];
-                    if (value === null || value === undefined) {
-                        value = '';
-                    } else if (typeof value === 'object') {
-                        value = JSON.stringify(value);
-                    }
-                    const stringValue = String(value);
-                    if (stringValue.includes('"') || stringValue.includes(',')) {
-                        return `"${stringValue.replace(/"/g, '""')}"`;
-                    }
-                    return stringValue;
-                });
-                csvRows.push(values.join(','));
+                for (const row of data) {
+                    const values = headers.map(header => {
+                        let value = row[header];
+                        if (value === null || value === undefined) {
+                            value = '';
+                        } else if (typeof value === 'object') {
+                            value = JSON.stringify(value);
+                        }
+                        const stringValue = String(value);
+                        if (stringValue.includes('"') || stringValue.includes(',')) {
+                            return `"${stringValue.replace(/"/g, '""')}"`;
+                        }
+                        return stringValue;
+                    });
+                    csvRows.push(values.join(','));
+                }
+                return csvRows.join('\n');
             }
-            return csvRows.join('\n');
-        }
+            // --- END BUG FIX #2 ---
+
+        });
     </script>
 </body>
 </html>
