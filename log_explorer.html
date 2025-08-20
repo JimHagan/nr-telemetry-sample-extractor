@@ -58,7 +58,8 @@
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background-color: #374151; /* gray-700 */
             border-radius: 20px;
-            border: 3px solid #1f2937; /* gray-800 */
+            border: 3px solid transparent;
+            background-clip: content-box;
         }
         .custom-scrollbar {
             scrollbar-width: thin;
@@ -298,7 +299,7 @@
                 if (!log) return;
 
                 const { modal, title, body } = UIElements.attributeModal;
-                title.textContent = highlightedKey ? `Largest Example for: ${highlightedKey}` : 'Full Log Payload';
+                title.textContent = highlightedKey ? `Example for: ${highlightedKey}` : 'Full Log Payload';
                 
                 let jsonString = JSON.stringify(log, null, 2);
                 if (highlightedKey) {
@@ -312,19 +313,43 @@
                 openModal(modal);
             };
 
+            // --- REFINEMENT #3: MODAL WITH FILTER ---
             window.openGroupByModal = (type) => {
                 const { modal, body } = UIElements.groupByModal;
                 modal.dataset.configType = type;
                 const currentAttr = type === 'count' ? countByAttribute : bytesGroupByAttribute;
-                const topAttributes = [...allFoundAttributes].sort().slice(0, 100);
-                
-                body.innerHTML = topAttributes.map(attr => `
-                    <label class="flex items-center space-x-3 p-2 hover:bg-gray-800 rounded-md">
-                        <input type="radio" name="groupByAttr" value="${attr}" class="form-radio h-4 w-4 text-emerald-600 bg-gray-700 border-gray-600" ${currentAttr === attr ? 'checked' : ''}>
-                        <span class="font-mono text-sm">${attr}</span>
-                    </label>
-                `).join('');
+                const allAttributes = [...allFoundAttributes].sort();
 
+                const renderAttributes = (filter = '') => {
+                    const filteredAttributes = filter
+                        ? allAttributes.filter(attr => attr.toLowerCase().includes(filter.toLowerCase()))
+                        : allAttributes;
+                    
+                    if (filteredAttributes.length === 0) {
+                        return '<p class="text-gray-500 text-center">No attributes found.</p>';
+                    }
+
+                    return filteredAttributes.map(attr => `
+                        <label class="flex items-center space-x-3 p-2 hover:bg-gray-800 rounded-md cursor-pointer">
+                            <input type="radio" name="groupByAttr" value="${attr}" class="form-radio h-4 w-4 text-emerald-600 bg-gray-700 border-gray-600" ${currentAttr === attr ? 'checked' : ''}>
+                            <span class="font-mono text-sm">${attr}</span>
+                        </label>
+                    `).join('');
+                };
+
+                body.innerHTML = `
+                    <input type="text" id="groupByFilterInput" placeholder="Filter attributes..." class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 mb-4 text-white focus:ring-2 focus:ring-emerald-500">
+                    <div id="groupByAttributeList" class="max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                        ${renderAttributes()}
+                    </div>
+                `;
+
+                const filterInput = document.getElementById('groupByFilterInput');
+                const attributeListContainer = document.getElementById('groupByAttributeList');
+                filterInput.addEventListener('input', (e) => {
+                    attributeListContainer.innerHTML = renderAttributes(e.target.value);
+                });
+                
                 openModal(modal);
             };
             
@@ -705,7 +730,22 @@
 
             const renderAnalysis = (stats) => {
                 const formatBytes = (bytes) => bytes > 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes.toFixed(1)} B`;
-                const topN = (obj, formatter = (v) => v) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => [k, formatter(v)]);
+                
+                // --- REFINEMENT #1a: Update this function ---
+                const createStatCard = (title, data, configType = null) => {
+                    // Refinement #2: Pencil Icon SVG instead of text
+                    let configHtml = configType ? `<button onclick="openGroupByModal('${configType}')" class="ml-2 text-emerald-400 hover:text-emerald-300" title="Configure Breakdown Attribute"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg></button>` : '';
+                    let content = '';
+                    const sortedData = Object.entries(data).sort((a,b) => b[1] - a[1]);
+
+                    if (sortedData.length > 0) {
+                        content = sortedData.map(([key, val]) => `<div class="flex justify-between py-1"><span>${key}:</span><span class="font-semibold text-emerald-400">${val}</span></div>`).join('');
+                    } else { 
+                        content = '<p class="text-gray-500">No data</p>'; 
+                    }
+                    // Refinement #1: Add a scrollable container for the content
+                    return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml}</h3><div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-2">${content}</div></div>`;
+                };
 
                 UIElements.firstSampleTime.textContent = new Date(stats.firstTimestamp).toLocaleString();
                 if (stats.lastTimestamp) {
@@ -731,15 +771,6 @@
                 } else {
                     UIElements.dataRate.textContent = 'N/A';
                 }
-
-                const createStatCard = (title, data, configType = null) => {
-                    let configHtml = configType ? `<button onclick="openGroupByModal('${configType}')" class="ml-2 text-emerald-400 hover:text-emerald-300 text-xs">[Configure...]</button>` : '';
-                    let content = '';
-                    if (Object.keys(data).length > 0) {
-                        content = Object.entries(data).sort((a,b) => b[1] - a[1]).map(([key, val]) => `<div class="flex justify-between"><span>${key}:</span><span class="font-semibold text-emerald-400">${val}</span></div>`).join('');
-                    } else { content = '<p class="text-gray-500">No data</p>'; }
-                    return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml}</h3><div class="space-y-1">${content}</div></div>`;
-                };
 
                 const attributeData = Object.keys(attributeStats).map(key => ({
                     name: key,
@@ -774,9 +805,10 @@
                     </div>
                 `;
 
+                // --- REFINEMENT #1b: Call the updated function ---
                 UIElements.analysisContent.innerHTML = `
                     ${createStatCard(`Count Breakdown by ${countByAttribute}`, stats.countByGroup, 'count')}
-                    ${createStatCard(`Bytes Breakdown by ${bytesGroupByAttribute}`, Object.fromEntries(topN(stats.byteByGroup, formatBytes)), 'bytes')}
+                    ${createStatCard(`Bytes Breakdown by ${bytesGroupByAttribute}`, Object.fromEntries(Object.entries(stats.byteByGroup).map(([k,v]) => [k, formatBytes(v)])), 'bytes')}
                     ${attributeTable}
                     <div class="bg-gray-800 p-3 rounded-lg md:col-span-2">
                         <h3 class="font-semibold text-gray-300 mb-2">Anomalies</h3>
