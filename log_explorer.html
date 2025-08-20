@@ -113,6 +113,7 @@
                     <button data-tab="analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Analysis</button>
                     <button data-tab="livetail" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Live Tail</button>
                     <button data-tab="recommendations" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Recommendations</button>
+                    <button data-tab="about" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">About This Tool</button>
                 </nav>
             </div>
 
@@ -234,6 +235,29 @@
                         <p class="text-gray-400 text-center">Start sampling to generate recommendations.</p>
                     </div>
                 </div>
+
+                <div id="aboutPanel" class="tab-panel hidden">
+                    <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto space-y-4 text-gray-300">
+                        <h2 class="text-3xl font-bold text-emerald-400">Telemetry Sampler & Analyzer</h2>
+                        <p>
+                            This tool allows you to analyze Telemetry data in real time to help find areas for optimization and a variety of other anomalies. 
+                            This will also work with other telemetry types beyond logs, such as events or traces, as long as the data can be queried via NRQL.
+                        </p>
+                        <div class="pt-4 space-y-2">
+                            <div>
+                                <strong>Author:</strong> 
+                                <a href="https://github.com/JimHagan" target="_blank" class="text-emerald-400 hover:underline">Jim Hagan</a>
+                            </div>
+                            <div>
+                                <strong>Repository:</strong> 
+                                <a href="https://github.com/JimHagan/nr-telemetry-analyzer" target="_blank" class="text-emerald-400 hover:underline">nr-telemetry-analyzer</a>
+                            </div>
+                        </div>
+                        <div class="pt-6 text-center text-gray-500 text-sm">
+                            &copy; 2025
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -266,7 +290,7 @@
             </div>
         </div>
     </div>
-
+    
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             let samplingInterval;
@@ -313,7 +337,6 @@
                 openModal(modal);
             };
 
-            // --- REFINEMENT #3: MODAL WITH FILTER ---
             window.openGroupByModal = (type) => {
                 const { modal, body } = UIElements.groupByModal;
                 modal.dataset.configType = type;
@@ -418,7 +441,7 @@
                     overlay: document.querySelector('#groupByModal .modal-overlay'),
                     body: document.getElementById('groupByModalBody'),
                     applyButton: document.getElementById('applyGroupBy'),
-                }
+                },
             });
 
             const flatpickrConfig = {
@@ -731,9 +754,7 @@
             const renderAnalysis = (stats) => {
                 const formatBytes = (bytes) => bytes > 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes.toFixed(1)} B`;
                 
-                // --- REFINEMENT #1a: Update this function ---
                 const createStatCard = (title, data, configType = null) => {
-                    // Refinement #2: Pencil Icon SVG instead of text
                     let configHtml = configType ? `<button onclick="openGroupByModal('${configType}')" class="ml-2 text-emerald-400 hover:text-emerald-300" title="Configure Breakdown Attribute"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg></button>` : '';
                     let content = '';
                     const sortedData = Object.entries(data).sort((a,b) => b[1] - a[1]);
@@ -743,7 +764,6 @@
                     } else { 
                         content = '<p class="text-gray-500">No data</p>'; 
                     }
-                    // Refinement #1: Add a scrollable container for the content
                     return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml}</h3><div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-2">${content}</div></div>`;
                 };
 
@@ -805,7 +825,6 @@
                     </div>
                 `;
 
-                // --- REFINEMENT #1b: Call the updated function ---
                 UIElements.analysisContent.innerHTML = `
                     ${createStatCard(`Count Breakdown by ${countByAttribute}`, stats.countByGroup, 'count')}
                     ${createStatCard(`Bytes Breakdown by ${bytesGroupByAttribute}`, Object.fromEntries(Object.entries(stats.byteByGroup).map(([k,v]) => [k, formatBytes(v)])), 'bytes')}
@@ -972,7 +991,8 @@
                 toggleSampling();
             });
             
-            UIElements.headerDownloadButton.addEventListener('click', () => {
+            UIElements.headerDownloadButton.addEventListener('click', (e) => {
+                e.stopPropagation();
                 UIElements.headerDownloadMenu.classList.toggle('hidden');
             });
 
@@ -986,6 +1006,12 @@
                 e.preventDefault();
                 downloadData('csv');
                 UIElements.headerDownloadMenu.classList.add('hidden');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!UIElements.headerDownloadButton.contains(e.target)) {
+                    UIElements.headerDownloadMenu.classList.add('hidden');
+                }
             });
             
             function downloadData(format) {
