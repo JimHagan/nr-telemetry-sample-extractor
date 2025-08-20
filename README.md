@@ -109,7 +109,9 @@ This tab provides a raw, real-time view of the last 1000 records collected. Rend
 
 ### Recommendations Tab
 
-This tab is a placeholder for future features.
+This tab provides a set of dynamically generated recommendations based upon the characteristics of the data sample.
+
+![alt text](recommendations-tab.png)
 
 ### Starting and Stopping Sampling
 

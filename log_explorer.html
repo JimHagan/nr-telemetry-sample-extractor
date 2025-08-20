@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Flatpickr CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <!-- FIXED: Flatpickr JS moved to the head -->
+    <!-- Flatpickr JS -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -214,8 +214,8 @@
                 </div>
 
                 <div id="recommendationsPanel" class="tab-panel hidden">
-                    <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 text-center">
-                        <p class="text-gray-400">Recommendations feature coming soon.</p>
+                    <div id="recommendationsContent" class="bg-gray-900 p-6 rounded-xl border border-gray-700 space-y-4">
+                        <p class="text-gray-400 text-center">Start sampling to generate recommendations.</p>
                     </div>
                 </div>
             </div>
@@ -354,6 +354,7 @@
                 headerStatusActive: document.getElementById('headerStatusActive'),
                 headerStatusInactive: document.getElementById('headerStatusInactive'),
                 stopFromHeader: document.getElementById('stopFromHeader'),
+                recommendationsContent: document.getElementById('recommendationsContent'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -710,6 +711,66 @@
                 UIElements.analysisResults.classList.remove('hidden');
                 UIElements.analysisResults.classList.add('flash-update');
                 setTimeout(() => UIElements.analysisResults.classList.remove('flash-update'), 800);
+                
+                renderRecommendations(stats, attributeData);
+            };
+            
+            const renderRecommendations = (stats, attributeData) => {
+                let recommendationsHtml = '';
+                
+                if (stats.multilineMessages > 0) {
+                    recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-yellow-400 mb-2">Multiline Format Errors Detected</h3>
+                        <p class="text-gray-300">We detected ${stats.multilineMessages} logs where the 'message' attribute ends in a newline character. This may indicate that multi-line logs (like stack traces) are being sent as separate records, which creates duplicate attributes and increases ingest volume. Consider reviewing your log forwarder configurations to correctly handle multi-line log parsing.</p>
+                    </div>`;
+                }
+
+                const logPatternAttr = attributeData.find(attr => attr.name === 'newrelic.logPattern');
+                if (logPatternAttr) {
+                     recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-blue-400 mb-2">Log Patterns Enabled</h3>
+                        <p class="text-gray-300">The attribute <code class="bg-gray-900 px-1 rounded text-emerald-400">newrelic.logPattern</code> is present and contributes to <strong class="font-bold">${logPatternAttr.cumulativeContrib.toFixed(1)}%</strong> of your total data volume. This feature automatically identifies patterns in your logs, which is useful for analysis but adds to your data ingest. If you don't use this feature, it can be disabled in your log parsing rules to reduce data volume.</p>
+                    </div>`;
+                }
+                
+                const largeAttrs = attributeData.filter(attr => attr.cumulativeContrib > 0).sort((a,b) => b.cumulativeContrib - a.cumulativeContrib).slice(0, 5);
+                const largeAttrThreshold = attributeData.length > 0 ? attributeData.sort((a,b) => b.cumulativeContrib - a.cumulativeContrib)[Math.floor(attributeData.length * 0.05)].cumulativeContrib : 0;
+                if (largeAttrs.length > 0 && largeAttrs[0].cumulativeContrib > largeAttrThreshold) {
+                     recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-blue-400 mb-2">Investigate Large Attributes</h3>
+                        <p class="text-gray-300 mb-2">The following attributes are in the top 95th percentile for cumulative data volume. Consider investigating if they contain unnecessarily verbose data:</p>
+                        <ul class="list-disc list-inside text-gray-300">${largeAttrs.map(attr => `<li><strong class="font-mono text-emerald-400">${attr.name}</strong> (${attr.cumulativeContrib.toFixed(1)}% contribution)</li>`).join('')}</ul>
+                    </div>`;
+                }
+
+                if (attrCountThreshold > 25) {
+                     recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-blue-400 mb-2">High Attribute Count</h3>
+                        <p class="text-gray-300">The 95th percentile for attribute count is <strong class="font-bold">${attrCountThreshold.toFixed(0)}</strong>, which is higher than the recommended 25. High attribute counts can increase ingest costs. Consider using the "Min Attrs" filter in the Live Tail to investigate these records and see if all attributes are necessary.</p>
+                    </div>`;
+                }
+
+                if (stats.anomalies.size > 0) {
+                    const exampleKey = [...stats.anomalies][0];
+                    recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-yellow-400 mb-2">Potentially Garbled Attributes</h3>
+                        <p class="text-gray-300">We detected attributes with potentially garbled or meaningless text (e.g., long, non-word strings). You may want to investigate if these are necessary. <button class="text-emerald-400 hover:underline" data-attr-name="${exampleKey}" data-type="garbled">Click here to see an example of '${exampleKey}'.</button></p>
+                    </div>`;
+                }
+
+                const rate = stats.rateCount !== null ? stats.rateCount / parseInt(UIElements.sampleWindow.value, 10) : 0;
+                if (rate > 50000) {
+                     recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
+                        <h3 class="font-semibold text-lg text-red-400 mb-2">High Data Rate Detected</h3>
+                        <p class="text-gray-300">Your estimated data rate is over 50,000 events per second. At this volume, you should consider creating a <a href="https://docs.newrelic.com/docs/logs/logs-in-context/data-partition/" target="_blank" class="text-emerald-400 hover:underline">log data partition</a> to manage costs and improve query performance.</p>
+                    </div>`;
+                }
+
+                if (recommendationsHtml === '') {
+                    recommendationsHtml = '<p class="text-gray-400 text-center">No specific recommendations at this time. Keep sampling for more analysis.</p>';
+                }
+                
+                UIElements.recommendationsContent.innerHTML = recommendationsHtml;
             };
 
             const showError = (msg) => {
@@ -760,6 +821,15 @@
                     const logIndex = allLogs.findIndex(log => log.hasOwnProperty(attrName));
                     showExample(logIndex, attrName);
                 }
+            });
+            
+            UIElements.recommendationsContent.addEventListener('click', (e) => {
+                 const target = e.target.closest('button');
+                if (!target || !target.dataset.attrName) return;
+                const attrName = target.dataset.attrName;
+                const type = target.dataset.type;
+                const logIndex = allLogs.findIndex(log => log.hasOwnProperty(attrName));
+                showExample(logIndex, attrName);
             });
 
             UIElements.attributeModal.closeButton.addEventListener('click', () => closeModal(UIElements.attributeModal.modal));
