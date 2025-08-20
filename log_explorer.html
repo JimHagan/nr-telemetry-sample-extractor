@@ -438,7 +438,6 @@
                         runNerdGraphQuery(apiKey, accountId, finalQuery)
                     ];
                     
-                    // --- BUG FIX #3: ROBUST PROMISE HANDLING ---
                     let hasCountQuery = false;
                     if (countQuery) {
                         queries.push(runNerdGraphQuery(apiKey, accountId, countQuery));
@@ -469,7 +468,6 @@
                             UIElements.headerAccountName.textContent = accountName;
                         }
                     }
-                    // --- END BUG FIX #3 ---
 
                     if (newLogs.length > 0) {
                         allLogs.push(...newLogs);
@@ -481,6 +479,7 @@
                         analyzeLogs(rateCount);
                     }
                     if (currentSampleCount >= maxSamples) {
+                        UIElements.sampleCounter.textContent = `${currentSampleCount} Samples Retrieved (${allLogs.length} Records)`;
                         toggleSampling(); // Auto-stop
                     } else {
                         setStatus('Sampling...', true);
@@ -558,7 +557,6 @@
                     [UIElements.firstSampleTime, UIElements.lastSampleTime, UIElements.timeCoverage].forEach(el => el.textContent = 'N/A');
                     hideError();
                     
-                    // --- FIX FOR BUG #1: Ensure indicator is visible on start ---
                     const samplingIndicator = document.getElementById('samplingStatusIndicator');
                     if (samplingIndicator) {
                         samplingIndicator.classList.remove('hidden');
@@ -587,13 +585,11 @@
                     UIElements.samplingToggle.classList.replace('hover:bg-red-700', 'hover:bg-emerald-700');
                     configInputs.forEach(el => el.disabled = false);
                     
-                    // --- FIX FOR BUG #1: Hide only the indicator, not the whole header ---
                     const samplingIndicator = document.getElementById('samplingStatusIndicator');
                     if (samplingIndicator) {
                         samplingIndicator.classList.add('hidden');
                     }
                     UIElements.headerStatusInactive.classList.remove('hidden');
-                    // Note: We no longer hide UIElements.headerActiveInfo here.
                 }
             };
 
@@ -960,7 +956,6 @@
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
             
-            // --- BUG FIX #2: MOVE FUNCTIONS INTO SCOPE ---
             function downloadData(format) {
                 if (allLogs.length === 0) {
                     alert("No events to download.");
@@ -1016,7 +1011,6 @@
                 }
                 return csvRows.join('\n');
             }
-            // --- END BUG FIX #2 ---
 
         });
     </script>
