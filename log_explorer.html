@@ -76,13 +76,28 @@
                 <h1 class="text-4xl font-bold text-emerald-400">Telemetry Sampler & Analyzer</h1>
                 <p class="text-gray-400 mt-2">Continuously sample log data from New Relic and analyze it on demand.</p>
             </div>
-            <div id="headerStatusContainer">
-                <button id="headerStatusActive" class="hidden items-center space-x-3 p-2 rounded-lg hover:bg-gray-800 transition">
-                    <span id="sampleCounter" class="text-sm text-gray-400"></span>
-                    <div class="spinner"></div>
-                    <span class="text-emerald-400 font-semibold">Sampling...</span>
-                    <div id="stopFromHeader" class="w-4 h-4 bg-red-600 rounded hover:bg-red-500"></div>
-                </button>
+            <div id="headerStatusContainer" class="flex items-center space-x-4">
+                <div id="headerActiveInfo" class="hidden items-center space-x-4">
+                    <div class="text-right">
+                        <div id="headerAccountName" class="text-sm font-semibold text-gray-300"></div>
+                        <div id="sampleCounter" class="text-xs text-gray-400"></div>
+                        <div id="headerDownloadContainer" class="relative mt-2">
+                            <button id="headerDownloadButton" class="flex items-center bg-gray-800 hover:bg-gray-700 text-white font-semibold py-1 px-3 rounded-md transition text-xs disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                Download
+                                <svg class="w-3 h-3 ml-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </button>
+                            <div id="headerDownloadMenu" class="hidden absolute right-0 mt-2 w-32 bg-gray-900 rounded-md shadow-lg z-10 border border-gray-700">
+                                <a href="#" id="headerDownloadJson" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800">JSON</a>
+                                <a href="#" id="headerDownloadCsv" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800">CSV</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-3 p-2 rounded-lg">
+                        <div class="spinner"></div>
+                        <span class="text-emerald-400 font-semibold">Sampling...</span>
+                        <button id="stopFromHeader" class="w-4 h-4 bg-red-600 rounded hover:bg-red-500"></button>
+                    </div>
+                </div>
                 <button id="headerStatusInactive" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-800 transition">
                     <svg class="w-6 h-6 text-emerald-600" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
                     <span class="text-gray-400 font-semibold">Start Sampling</span>
@@ -131,7 +146,7 @@
                                     <input type="number" id="sampleWindow" value="10" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
                                 </div>
                                 <div>
-                                     <label for="limitClause" class="block text-xs font-medium text-gray-400 mb-1">Limit</label>
+                                     <label for="limitClause" class="block text-xs font-medium text-gray-400 mb-1">Limit Clause</label>
                                     <input type="number" id="limitClause" value="5000" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
                                 </div>
                                 <div>
@@ -272,6 +287,7 @@
             let timeOffset = 0;
             let currentSampleCount = 0;
             let maxSamples = 10;
+            let accountName = null;
 
             const UIElements = {};
 
@@ -359,10 +375,17 @@
                 sizeFilter: document.getElementById('sizeFilter'),
                 attrCountFilter: document.getElementById('attrCountFilter'),
                 multilineFilter: document.getElementById('multilineFilter'),
+                headerActiveInfo: document.getElementById('headerActiveInfo'),
                 headerStatusActive: document.getElementById('headerStatusActive'),
                 headerStatusInactive: document.getElementById('headerStatusInactive'),
                 stopFromHeader: document.getElementById('stopFromHeader'),
                 sampleCounter: document.getElementById('sampleCounter'),
+                headerAccountName: document.getElementById('headerAccountName'),
+                headerDownloadContainer: document.getElementById('headerDownloadContainer'),
+                headerDownloadButton: document.getElementById('headerDownloadButton'),
+                headerDownloadMenu: document.getElementById('headerDownloadMenu'),
+                headerDownloadJson: document.getElementById('headerDownloadJson'),
+                headerDownloadCsv: document.getElementById('headerDownloadCsv'),
                 recommendationsContent: document.getElementById('recommendationsContent'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
@@ -397,7 +420,7 @@
             const fetchLogs = async () => {
                 currentSampleCount++;
                 const apiKey = UIElements.apiKey.value;
-                const accountId = UIElements.accountId.value;
+                const accountId = parseInt(UIElements.accountId.value, 10);
                 const baseQuery = UIElements.nrqlQuery.value;
                 const windowSeconds = parseInt(UIElements.sampleWindow.value, 10);
                 const limit = parseInt(UIElements.limitClause.value, 10);
@@ -424,15 +447,25 @@
                     if (countQuery) {
                         queries.push(runNerdGraphQuery(apiKey, accountId, countQuery));
                     }
+                    if (!accountName) {
+                        queries.push(fetchAccountName(apiKey, accountId));
+                    }
 
-                    const [logResults, countResults] = await Promise.all(queries);
+
+                    const [logResults, countResults, nameResult] = await Promise.all(queries);
                     
+                    if (nameResult) {
+                        accountName = nameResult;
+                        UIElements.headerAccountName.textContent = accountName;
+                    }
+
                     const newLogs = logResults;
                     let rateCount = countResults ? countResults[0]?.count : null;
 
                     if (newLogs.length > 0) {
                         allLogs.push(...newLogs);
                         UIElements.totalSamples.textContent = allLogs.length;
+                        UIElements.headerDownloadButton.disabled = false;
                         if (isLiveTailVisible) {
                             renderLogs(allLogs);
                         }
@@ -456,7 +489,7 @@
                     body: JSON.stringify({
                         apiKey,
                         query: `query($accountId: Int!, $nrql: Nrql!) { actor { account(id: $accountId) { nrql(query: $nrql, timeout: 10) { results } } } }`,
-                        variables: { accountId: parseInt(accountId), nrql: nrql }
+                        variables: { accountId: accountId, nrql: nrql }
                     })
                 });
                 const jsonResponse = await response.json();
@@ -464,6 +497,23 @@
                     throw new Error(jsonResponse.error || jsonResponse.errors.map(e => e.message).join(', '));
                 }
                 return jsonResponse.data.actor.account.nrql.results;
+            };
+            
+            const fetchAccountName = async (apiKey, accountId) => {
+                try {
+                    const response = await fetch('http://127.0.0.1:5002/account-name', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ apiKey, accountId })
+                    });
+                    const jsonResponse = await response.json();
+                    if (!response.ok || jsonResponse.errors) {
+                        return `Account ${accountId}`; // Fallback
+                    }
+                    return jsonResponse.data.actor.account.name;
+                } catch (e) {
+                    return `Account ${accountId}`; // Fallback
+                }
             };
 
             const toggleSampling = () => {
@@ -506,8 +556,8 @@
                     UIElements.samplingToggle.classList.replace('bg-emerald-600', 'bg-red-600');
                     UIElements.samplingToggle.classList.replace('hover:bg-emerald-700', 'hover:bg-red-700');
                     configInputs.forEach(el => el.disabled = true);
-                    UIElements.headerStatusActive.classList.remove('hidden');
-                    UIElements.headerStatusActive.classList.add('flex');
+                    UIElements.headerActiveInfo.classList.remove('hidden');
+                    UIElements.headerActiveInfo.classList.add('flex');
                     UIElements.headerStatusInactive.classList.add('hidden');
 
                 } else { // STOPPING
@@ -520,8 +570,8 @@
                     UIElements.samplingToggle.classList.replace('bg-red-600', 'bg-emerald-600');
                     UIElements.samplingToggle.classList.replace('hover:bg-red-700', 'hover:bg-emerald-700');
                     configInputs.forEach(el => el.disabled = false);
-                    UIElements.headerStatusActive.classList.add('hidden');
-                    UIElements.headerStatusActive.classList.remove('flex');
+                    UIElements.headerActiveInfo.classList.add('hidden');
+                    UIElements.headerActiveInfo.classList.remove('flex');
                     UIElements.headerStatusInactive.classList.remove('hidden');
                 }
             };
@@ -644,7 +694,7 @@
                 if (stats.lastTimestamp) {
                     UIElements.lastSampleTime.textContent = new Date(stats.lastTimestamp).toLocaleString();
                     const coverageSeconds = (stats.lastTimestamp - stats.firstTimestamp) / 1000;
-                    if (coverageSeconds >= 60) {
+                    if (coverageSeconds >= 1) {
                         const hours = Math.floor(coverageSeconds / 3600);
                         const minutes = Math.floor((coverageSeconds % 3600) / 60);
                         const seconds = Math.floor(coverageSeconds % 60);
@@ -872,7 +922,79 @@
                 e.stopPropagation();
                 toggleSampling();
             });
+            
+            UIElements.headerDownloadButton.addEventListener('click', () => {
+                UIElements.headerDownloadMenu.classList.toggle('hidden');
+            });
+
+            UIElements.headerDownloadJson.addEventListener('click', (e) => {
+                e.preventDefault();
+                downloadData('json');
+                UIElements.headerDownloadMenu.classList.add('hidden');
+            });
+
+            UIElements.headerDownloadCsv.addEventListener('click', (e) => {
+                e.preventDefault();
+                downloadData('csv');
+                UIElements.headerDownloadMenu.classList.add('hidden');
+            });
         });
+
+        function downloadData(format) {
+            if (allLogs.length === 0) {
+                alert("No events to download.");
+                return;
+            }
+            
+            const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
+            const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
+            const filename = `${accountName || 'account'}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
+            let content = '';
+            let mimeType = '';
+
+            if (format === 'json') {
+                content = JSON.stringify(allLogs, null, 2);
+                mimeType = 'application/json';
+            } else if (format === 'csv') {
+                content = convertToCSV(allLogs);
+                mimeType = 'text/csv';
+            }
+
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function convertToCSV(data) {
+            if (data.length === 0) return '';
+            const headers = [...allFoundAttributes];
+            const csvRows = [];
+            csvRows.push(headers.join(','));
+
+            for (const row of data) {
+                const values = headers.map(header => {
+                    let value = row[header];
+                    if (value === null || value === undefined) {
+                        value = '';
+                    } else if (typeof value === 'object') {
+                        value = JSON.stringify(value);
+                    }
+                    const stringValue = String(value);
+                    if (stringValue.includes('"') || stringValue.includes(',')) {
+                        return `"${stringValue.replace(/"/g, '""')}"`;
+                    }
+                    return stringValue;
+                });
+                csvRows.push(values.join(','));
+            }
+            return csvRows.join('\n');
+        }
     </script>
 </body>
 </html>

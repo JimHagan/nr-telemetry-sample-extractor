@@ -41,13 +41,39 @@ def handle_query():
         "variables": client_data.get('variables')
     }
     
+    return forward_to_nerdgraph(graphql_payload, api_key)
+
+# --- NEW: Route for fetching account name ---
+@app.route('/account-name', methods=['POST'])
+def handle_account_name_query():
+    """
+    This endpoint receives an account ID and fetches its name.
+    """
+    client_data = request.json
+    api_key = client_data.get('apiKey')
+    account_id = client_data.get('accountId')
+
+    if not api_key or not account_id:
+        return jsonify({"error": "API Key and Account ID are required."}), 400
+    
+    print(f"Received account name request for Account ID: {account_id}")
+
+    graphql_payload = {
+        "query": "query($accountId: Int!) { actor { account(id: $accountId) { name } } }",
+        "variables": { "accountId": account_id }
+    }
+    
+    return forward_to_nerdgraph(graphql_payload, api_key)
+
+
+def forward_to_nerdgraph(payload, api_key):
+    """A helper function to forward a GraphQL payload to New Relic."""
     headers = {
         'Content-Type': 'application/json',
         'API-Key': api_key
     }
-
     try:
-        response = requests.post(NERDGRAPH_URL, headers=headers, json=graphql_payload, timeout=60)
+        response = requests.post(NERDGRAPH_URL, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         return jsonify(response.json())
     except requests.exceptions.RequestException as e:
@@ -55,4 +81,4 @@ def handle_query():
         return jsonify({"error": "A network error occurred while contacting New Relic."}), 503
 
 if __name__ == '__main__':
-    app.run(port=5002, debug=True) # Running on a different port (5002)
+    app.run(port=5002, debug=True)
