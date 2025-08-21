@@ -6,11 +6,8 @@
     <title>New Relic Telemetry Sampler & Analyzer</title>
     <script src="https://cdn-tailwindcss.vercel.app/"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Flatpickr CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <!-- Flatpickr JS -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <!-- Marked.js for Markdown Rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -136,21 +133,18 @@
 
         <div id="errorMessage" class="hidden bg-red-900 border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6"></div>
 
-        <!-- Tabbed Interface -->
         <div>
-            <!-- Tab Buttons -->
             <div class="border-b border-gray-700">
                 <nav class="-mb-px flex space-x-6" aria-label="Tabs">
                     <button data-tab="configuration" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-emerald-400 border-emerald-500">Configuration</button>
                     <button data-tab="analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Analysis</button>
                     <button data-tab="livetail" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Live Tail</button>
                     <button data-tab="recommendations" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Recommendations</button>
-                    <button data-tab="aiinsights" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">AI Insights</button>
+                    <button data-tab="aiinsights" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">AI Insights (Experimental)</button>
                     <button data-tab="about" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">About This Tool</button>
                 </nav>
             </div>
 
-            <!-- Tab Panels -->
             <div class="pt-6">
                 <div id="configurationPanel" class="tab-panel">
                     <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 max-w-2xl mx-auto">
@@ -279,11 +273,9 @@
                                 </button>
                                 <div class="flex items-center space-x-2 text-gray-400">
                                     <label for="insightsSamplePercent">Send</label>
-                                    <!-- REFACTOR #1: Default value changed to 10 -->
                                     <input type="number" id="insightsSamplePercent" value="10" min="1" max="100" class="w-20 bg-gray-800 border border-gray-700 rounded-md px-3 py-1 text-white focus:ring-2 focus:ring-emerald-500">
                                     <label>% of records</label>
                                 </div>
-                                <!-- REFACTOR #2: Customize Prompt button added -->
                                 <button id="customizePromptButton" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50" disabled>
                                     Customize Prompt
                                 </button>
@@ -293,8 +285,7 @@
                             </div>
                         </div>
                         <div id="insightsResult" class="mt-6 prose-custom">
-                            <!-- AI Insights will be rendered here -->
-                        </div>
+                            </div>
                     </div>
                 </div>
                 
@@ -324,7 +315,6 @@
         </div>
     </div>
 
-    <!-- Modals -->
     <div id="attributeModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
         <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
         <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
@@ -354,7 +344,6 @@
         </div>
     </div>
 
-    <!-- REFACTOR #2: Prompt Customization Modal -->
     <div id="promptModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
         <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
         <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
@@ -391,7 +380,6 @@
             let maxSamples = 10;
             let accountName = null;
 
-            // --- REFACTOR #3 & #4: Default prompt is now defined in the frontend ---
             const defaultPrompt = `Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
 
 1. Does it appear that there are multi-line logs? These are logs that are abruptly truncated with a '\\n'. That can lead to a duplication of the entire log including all attributes. Give a summary of the % of times this occurs in the sample. And a % of bytes (estimated) in the sample set are impacted.
@@ -1168,7 +1156,6 @@
 
                 try {
                     const csvData = convertToCSV(logSample);
-                    // --- REFACTOR #3: Send JSON with prompt to backend ---
                     const payload = {
                         csv_data: csvData,
                         prompt: currentPrompt
@@ -1195,11 +1182,10 @@
                 }
             });
 
-            // --- REFACTOR #2: Event listeners for the prompt modal ---
             UIElements.customizePromptButton.addEventListener('click', () => {
                 UIElements.promptModal.textarea.value = currentPrompt;
                 openModal(UIElements.promptModal.modal);
-            });
+});
             UIElements.promptModal.saveButton.addEventListener('click', () => {
                 currentPrompt = UIElements.promptModal.textarea.value;
                 closeModal(UIElements.promptModal.modal);

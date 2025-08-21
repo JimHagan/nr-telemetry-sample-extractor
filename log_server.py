@@ -77,7 +77,6 @@ def handle_gemini_insights():
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     
-    # --- REFACTOR: Expect JSON with csv_data and an optional prompt ---
     data = request.json
     csv_data = data.get('csv_data')
     custom_prompt = data.get('prompt')
@@ -85,7 +84,6 @@ def handle_gemini_insights():
     if not csv_data:
         return jsonify({"error": "Log data (CSV) is missing."}), 400
 
-    # --- REFACTOR: Define the default prompt with the new reference ---
     DEFAULT_PROMPT = """
     Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
 
@@ -100,17 +98,16 @@ def handle_gemini_insights():
     5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.
     """
     
-    # Use the custom prompt if provided, otherwise use the default
     prompt_to_use = custom_prompt if custom_prompt else DEFAULT_PROMPT
-
     final_prompt = f"{prompt_to_use}\n\nHere is the data:\n---\n{csv_data}\n---"
 
     try:
         response = model.generate_content(final_prompt)
         return jsonify({"insights": response.text})
     except Exception as e:
+        # --- REFACTOR #2: Send the specific API error back to the client ---
         print(f"An error occurred with the Gemini API: {e}")
-        return jsonify({"error": "An error occurred while contacting the AI service."}), 503
+        return jsonify({"error": f"An error occurred while contacting the AI service: {str(e)}"}), 503
 
 
 def forward_to_nerdgraph(payload, api_key):
