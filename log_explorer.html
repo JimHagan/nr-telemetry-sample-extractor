@@ -1258,34 +1258,48 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
             });
             
             function downloadData(format) {
-                if (allLogs.length === 0) {
-                    alert("No events to download.");
-                    return;
-                }
-                
-                const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
-                const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
-                const filename = `${accountName || 'account'}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
-                let content = '';
-                let mimeType = '';
+                document.body.style.cursor = 'wait';
 
-                if (format === 'json') {
-                    content = JSON.stringify(allLogs, null, 2);
-                    mimeType = 'application/json';
-                } else if (format === 'csv') {
-                    content = convertToCSV(allLogs);
-                    mimeType = 'text/csv';
-                }
+                try {
+                    if (allLogs.length === 0) {
+                        alert("No events to download.");
+                        return;
+                    }
+                    
+                    const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
+                    const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
+                    
+                    const accountPart = (accountName || 'account')
+                                            .toLowerCase()
+                                            .replace(/\s+/g, '-');
+                    
+                    const filename = `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
+                    
+                    let content = '';
+                    let mimeType = '';
 
-                const blob = new Blob([content], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                    if (format === 'json') {
+                        content = JSON.stringify(allLogs, null, 2);
+                        mimeType = 'application/json';
+                    } else if (format === 'csv') {
+                        content = convertToCSV(allLogs);
+                        mimeType = 'text/csv';
+                    }
+
+                    const blob = new Blob([content], { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } finally {
+                    setTimeout(() => {
+                        document.body.style.cursor = 'default';
+                    }, 100);
+                }
             }
 
             function convertToCSV(data) {
