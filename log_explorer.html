@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .spinner {
@@ -65,6 +66,32 @@
             scrollbar-width: thin;
             scrollbar-color: #374151 transparent;
         }
+        /* Styles for AI Insights content */
+        .prose-custom {
+            color: #d1d5db; /* gray-300 */
+        }
+        .prose-custom h1, .prose-custom h2, .prose-custom h3, .prose-custom h4 {
+            color: #6ee7b7; /* emerald-300 */
+        }
+        .prose-custom p, .prose-custom li {
+            color: #d1d5db; /* gray-300 */
+        }
+        .prose-custom strong {
+            color: #f3f4f6; /* gray-100 */
+        }
+        .prose-custom a {
+            color: #5eead4; /* teal-300 */
+        }
+        .prose-custom blockquote {
+            border-left-color: #374151; /* gray-700 */
+            color: #9ca3af; /* gray-400 */
+        }
+        .prose-custom code {
+            color: #f0fdf4; /* green-50 */
+            background-color: #1f2937; /* gray-800 */
+            padding: 0.1em 0.3em;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-200">
@@ -113,6 +140,7 @@
                     <button data-tab="analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Analysis</button>
                     <button data-tab="livetail" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Live Tail</button>
                     <button data-tab="recommendations" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Recommendations</button>
+                    <button data-tab="aiinsights" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">AI Insights</button>
                     <button data-tab="about" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">About This Tool</button>
                 </nav>
             </div>
@@ -236,6 +264,28 @@
                     </div>
                 </div>
 
+                <div id="aiinsightsPanel" class="tab-panel hidden">
+                    <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto">
+                        <div class="space-y-4">
+                            <div class="flex items-center space-x-4">
+                                <button id="generateInsightsButton" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0" disabled>
+                                    Generate
+                                </button>
+                                <div class="flex items-center space-x-2 text-gray-400">
+                                    <label for="insightsSamplePercent">Send</label>
+                                    <input type="number" id="insightsSamplePercent" value="25" min="1" max="100" class="w-20 bg-gray-800 border border-gray-700 rounded-md px-3 py-1 text-white focus:ring-2 focus:ring-emerald-500">
+                                    <label>% of records</label>
+                                </div>
+                            </div>
+                            <div id="insightsStatus" class="text-gray-400 pt-2 h-6">
+                                Complete a sampling run to generate AI-powered insights.
+                            </div>
+                        </div>
+                        <div id="insightsResult" class="mt-6 prose-custom">
+                            </div>
+                    </div>
+                </div>
+                
                 <div id="aboutPanel" class="tab-panel hidden">
                     <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto space-y-4 text-gray-300">
                         <h2 class="text-3xl font-bold text-emerald-400">Telemetry Sampler & Analyzer</h2>
@@ -428,6 +478,10 @@
                 headerDownloadJson: document.getElementById('headerDownloadJson'),
                 headerDownloadCsv: document.getElementById('headerDownloadCsv'),
                 recommendationsContent: document.getElementById('recommendationsContent'),
+                generateInsightsButton: document.getElementById('generateInsightsButton'),
+                insightsStatus: document.getElementById('insightsStatus'),
+                insightsResult: document.getElementById('insightsResult'),
+                insightsSamplePercent: document.getElementById('insightsSamplePercent'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -572,6 +626,17 @@
                 }
             };
 
+            const updateInsightsSampleCount = () => {
+                if (allLogs.length === 0) {
+                    UIElements.insightsStatus.textContent = 'No records collected yet.';
+                    return;
+                }
+                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 25;
+                const step = Math.max(1, Math.floor(100 / percent));
+                const sampleSize = Math.floor(allLogs.length / step);
+                UIElements.insightsStatus.textContent = `Ready to generate insights from a sample of ${sampleSize} records.`;
+            };
+
             const toggleSampling = () => {
                 const configInputs = [UIElements.apiKey, UIElements.accountId, UIElements.nrqlQuery, UIElements.sampleFrequency, UIElements.sampleWindow, UIElements.limitClause, UIElements.arbitraryStartTime, UIElements.maxSamples];
                 if (!isSampling) { // STARTING
@@ -604,6 +669,11 @@
                     UIElements.timeStats.classList.remove('hidden');
                     [UIElements.firstSampleTime, UIElements.lastSampleTime, UIElements.timeCoverage].forEach(el => el.textContent = 'N/A');
                     hideError();
+                    
+                    // Reset AI Insights tab
+                    UIElements.generateInsightsButton.disabled = true;
+                    UIElements.insightsStatus.textContent = 'Complete a sampling run to generate AI-powered insights.';
+                    UIElements.insightsResult.innerHTML = '';
                     
                     const samplingIndicator = document.getElementById('samplingStatusIndicator');
                     if (samplingIndicator) {
@@ -638,6 +708,12 @@
                         samplingIndicator.classList.add('hidden');
                     }
                     UIElements.headerStatusInactive.classList.remove('hidden');
+                    
+                    // Enable AI Insights button if we have data
+                    if(allLogs.length > 0) {
+                        UIElements.generateInsightsButton.disabled = false;
+                        updateInsightsSampleCount();
+                    }
                 }
             };
 
@@ -913,7 +989,7 @@
                 UIElements.errorMessage.classList.remove('hidden');
             };
             const hideError = () => UIElements.errorMessage.classList.add('hidden');
-
+            
             UIElements.samplingToggle.addEventListener('click', toggleSampling);
             
             UIElements.tabButtons.forEach(button => {
@@ -1006,6 +1082,54 @@
                 e.preventDefault();
                 downloadData('csv');
                 UIElements.headerDownloadMenu.classList.add('hidden');
+            });
+
+            UIElements.insightsSamplePercent.addEventListener('input', updateInsightsSampleCount);
+            
+            UIElements.generateInsightsButton.addEventListener('click', async () => {
+                UIElements.generateInsightsButton.disabled = true;
+                UIElements.generateInsightsButton.innerHTML = `<div class="spinner w-5 h-5 border-2"></div>`;
+                UIElements.insightsResult.innerHTML = '';
+                
+                // --- SORTING AND SAMPLING LOGIC ---
+                const sortedLogs = [...allLogs].sort((a, b) => {
+                    if (a.timestamp < b.timestamp) return -1;
+                    if (a.timestamp > b.timestamp) return 1;
+                    if (a.messageId && b.messageId) {
+                        if (a.messageId < b.messageId) return -1;
+                        if (a.messageId > b.messageId) return 1;
+                    }
+                    return 0;
+                });
+
+                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 25;
+                const step = Math.max(1, Math.floor(100 / percent));
+                const logSample = sortedLogs.filter((_, index) => index % step === 0);
+                
+                UIElements.insightsStatus.textContent = `Processing a sample of ${logSample.length} records... This may take a moment.`;
+
+                try {
+                    const csvData = convertToCSV(logSample);
+                    const response = await fetch('http://127.0.0.1:5002/gemini-insights', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/csv' },
+                        body: csvData
+                    });
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        UIElements.insightsResult.innerHTML = `<div class="p-4 bg-yellow-900 border border-yellow-700 text-yellow-200 rounded-lg">${data.error}</div>`;
+                    } else {
+                        UIElements.insightsResult.innerHTML = marked.parse(data.insights);
+                    }
+
+                } catch (err) {
+                    UIElements.insightsResult.innerHTML = `<div class="p-4 bg-red-900 border border-red-700 text-red-200 rounded-lg">A network error occurred while fetching AI insights.</div>`;
+                } finally {
+                    UIElements.generateInsightsButton.textContent = 'Generate';
+                    UIElements.generateInsightsButton.disabled = false;
+                    UIElements.insightsStatus.textContent = `Insights generated from the last sample of ${logSample.length} records.`;
+                }
             });
 
             document.addEventListener('click', (e) => {
