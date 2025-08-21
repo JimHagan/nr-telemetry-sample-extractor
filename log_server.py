@@ -68,21 +68,27 @@ def handle_account_name_query():
 @app.route('/gemini-insights', methods=['POST'])
 def handle_gemini_insights():
     """Receives log data and a prompt, then gets insights from the Gemini API."""
-    # --- REFACTOR: Make the GEMINI_API_KEY optional ---
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        # Instead of returning an error, print a warning and proceed.
-        # The subsequent API call will fail gracefully and inform the user.
-        print("WARNING: GEMINI_API_KEY environment variable not set. AI Insights will fail.")
-        api_key = "" 
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    
     data = request.json
     csv_data = data.get('csv_data')
     custom_prompt = data.get('prompt')
+    client_api_key = data.get('api_key')
+    client_model = data.get('model')
+    
+    # --- REFACTOR: Use client-side key or fallback to environment variable ---
+    api_key_to_use = client_api_key
+    if not api_key_to_use:
+        api_key_to_use = os.environ.get("GEMINI_API_KEY")
 
+    if not api_key_to_use:
+        print("WARNING: Gemini API Key is not configured on client or server. AI Insights will fail.")
+        api_key_to_use = ""
+
+    # --- REFACTOR: Use client-side model or fallback to default ---
+    model_to_use = client_model if client_model else 'gemini-1.5-flash-latest'
+
+    genai.configure(api_key=api_key_to_use)
+    model = genai.GenerativeModel(model_to_use)
+    
     if not csv_data:
         return jsonify({"error": "Log data (CSV) is missing."}), 400
 

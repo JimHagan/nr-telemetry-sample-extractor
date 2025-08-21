@@ -268,6 +268,19 @@
 
                 <div id="aiinsightsPanel" class="tab-panel hidden">
                     <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label for="geminiApiKey" class="block text-sm font-medium text-gray-300 mb-1">Gemini API Key (Optional)</label>
+                                <input type="password" id="geminiApiKey" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="Provide key to override server default">
+                                <p class="text-xs text-gray-500 mt-1">Leave blank to accept server default.</p>
+                            </div>
+                            <div>
+                                <label for="geminiModel" class="block text-sm font-medium text-gray-300 mb-1">Gemini Model (Optional)</label>
+                                <input type="text" id="geminiModel" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="gemini-1.5-flash-latest">
+                                <p class="text-xs text-gray-500 mt-1">Leave blank to accept server default.</p>
+                            </div>
+                        </div>
+                        <hr class="border-gray-700 my-4">
                         <div class="space-y-4">
                             <div class="flex items-center space-x-4">
                                 <button id="generateInsightsButton" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0" disabled>
@@ -524,6 +537,8 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 insightsResult: document.getElementById('insightsResult'),
                 insightsSamplePercent: document.getElementById('insightsSamplePercent'),
                 customizePromptButton: document.getElementById('customizePromptButton'),
+                geminiApiKey: document.getElementById('geminiApiKey'),
+                geminiModel: document.getElementById('geminiModel'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -1161,9 +1176,14 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
                 try {
                     const csvData = convertToCSV(logSample);
+                    const clientApiKey = UIElements.geminiApiKey.value;
+                    const clientModel = UIElements.geminiModel.value;
+
                     const payload = {
                         csv_data: csvData,
-                        prompt: currentPrompt
+                        prompt: currentPrompt,
+                        api_key: clientApiKey,
+                        model: clientModel
                     };
                     const response = await fetch('http://127.0.0.1:5002/gemini-insights', {
                         method: 'POST',
