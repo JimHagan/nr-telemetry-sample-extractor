@@ -65,26 +65,29 @@ def handle_account_name_query():
     return forward_to_nerdgraph(graphql_payload, api_key)
 
 
-# --- NEW: Route for fetching AI insights from Gemini ---
 @app.route('/gemini-insights', methods=['POST'])
 def handle_gemini_insights():
-    """Receives log data as CSV and gets insights from the Gemini API."""
+    """Receives log data and a prompt, then gets insights from the Gemini API."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return jsonify({
             "error": "Gemini API key is not configured on the server. Please set the GEMINI_API_KEY environment variable to use this feature."
-        }), 412 # 412 Precondition Failed is a fitting status code
+        }), 412
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     
-    csv_data = request.data.decode('utf-8')
+    # --- REFACTOR: Expect JSON with csv_data and an optional prompt ---
+    data = request.json
+    csv_data = data.get('csv_data')
+    custom_prompt = data.get('prompt')
+
     if not csv_data:
         return jsonify({"error": "Log data (CSV) is missing."}), 400
 
-    # The detailed prompt you provided
-    prompt = f"""
-    Analyze this CSV data for the following:
+    # --- REFACTOR: Define the default prompt with the new reference ---
+    DEFAULT_PROMPT = """
+    Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
 
     1. Does it appear that there are multi-line logs? These are logs that are abruptly truncated with a '\\n'. That can lead to a duplication of the entire log including all attributes. Give a summary of the % of times this occurs in the sample. And a % of bytes (estimated) in the sample set are impacted.
 
@@ -95,15 +98,15 @@ def handle_gemini_insights():
     4. Give an analysis if it seems that some attributes are duplicated. This could happen in a situation where some logs have two fields like "env" and "environ" that contain more or less the same thing. In addition you may have logs that have a "message" and "Message" fields with more or less the same payload. Those are just examples.
 
     5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.
-
-    Here is the data:
-    ---
-    {csv_data}
-    ---
     """
+    
+    # Use the custom prompt if provided, otherwise use the default
+    prompt_to_use = custom_prompt if custom_prompt else DEFAULT_PROMPT
+
+    final_prompt = f"{prompt_to_use}\n\nHere is the data:\n---\n{csv_data}\n---"
 
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(final_prompt)
         return jsonify({"insights": response.text})
     except Exception as e:
         print(f"An error occurred with the Gemini API: {e}")
@@ -125,5 +128,4 @@ def forward_to_nerdgraph(payload, api_key):
         return jsonify({"error": "A network error occurred while contacting New Relic."}), 503
 
 if __name__ == '__main__':
-    # For production, it's better to use a proper WSGI server like Gunicorn or Waitress
     app.run(port=5002, debug=True)

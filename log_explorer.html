@@ -6,8 +6,11 @@
     <title>New Relic Telemetry Sampler & Analyzer</title>
     <script src="https://cdn-tailwindcss.vercel.app/"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Flatpickr CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <!-- Flatpickr JS -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <!-- Marked.js for Markdown Rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -133,7 +136,9 @@
 
         <div id="errorMessage" class="hidden bg-red-900 border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6"></div>
 
+        <!-- Tabbed Interface -->
         <div>
+            <!-- Tab Buttons -->
             <div class="border-b border-gray-700">
                 <nav class="-mb-px flex space-x-6" aria-label="Tabs">
                     <button data-tab="configuration" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-emerald-400 border-emerald-500">Configuration</button>
@@ -145,6 +150,7 @@
                 </nav>
             </div>
 
+            <!-- Tab Panels -->
             <div class="pt-6">
                 <div id="configurationPanel" class="tab-panel">
                     <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 max-w-2xl mx-auto">
@@ -273,16 +279,22 @@
                                 </button>
                                 <div class="flex items-center space-x-2 text-gray-400">
                                     <label for="insightsSamplePercent">Send</label>
-                                    <input type="number" id="insightsSamplePercent" value="25" min="1" max="100" class="w-20 bg-gray-800 border border-gray-700 rounded-md px-3 py-1 text-white focus:ring-2 focus:ring-emerald-500">
+                                    <!-- REFACTOR #1: Default value changed to 10 -->
+                                    <input type="number" id="insightsSamplePercent" value="10" min="1" max="100" class="w-20 bg-gray-800 border border-gray-700 rounded-md px-3 py-1 text-white focus:ring-2 focus:ring-emerald-500">
                                     <label>% of records</label>
                                 </div>
+                                <!-- REFACTOR #2: Customize Prompt button added -->
+                                <button id="customizePromptButton" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50" disabled>
+                                    Customize Prompt
+                                </button>
                             </div>
                             <div id="insightsStatus" class="text-gray-400 pt-2 h-6">
                                 Complete a sampling run to generate AI-powered insights.
                             </div>
                         </div>
                         <div id="insightsResult" class="mt-6 prose-custom">
-                            </div>
+                            <!-- AI Insights will be rendered here -->
+                        </div>
                     </div>
                 </div>
                 
@@ -312,6 +324,7 @@
         </div>
     </div>
 
+    <!-- Modals -->
     <div id="attributeModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
         <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
         <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
@@ -340,6 +353,26 @@
             </div>
         </div>
     </div>
+
+    <!-- REFACTOR #2: Prompt Customization Modal -->
+    <div id="promptModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <div class="modal-overlay absolute inset-0 bg-black bg-opacity-70"></div>
+        <div class="modal-content bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-2xl m-4 transform scale-95">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 class="text-xl font-semibold text-emerald-400">Customize AI Prompt</h3>
+                <button class="close-modal text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6">
+                <textarea id="promptTextarea" rows="15" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white font-mono text-sm focus:ring-2 focus:ring-emerald-500"></textarea>
+            </div>
+            <div class="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700 flex justify-end space-x-4">
+                 <button id="cancelPrompt" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
+                 <button id="savePrompt" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md transition">Save</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -357,6 +390,21 @@
             let currentSampleCount = 0;
             let maxSamples = 10;
             let accountName = null;
+
+            // --- REFACTOR #3 & #4: Default prompt is now defined in the frontend ---
+            const defaultPrompt = `Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
+
+1. Does it appear that there are multi-line logs? These are logs that are abruptly truncated with a '\\n'. That can lead to a duplication of the entire log including all attributes. Give a summary of the % of times this occurs in the sample. And a % of bytes (estimated) in the sample set are impacted.
+
+2. Give a summary of whether any logs or metrics are being duplicated completely. In other words they are coming from different sources but are mostly the same. Provide some statistically summary of the impact in terms of numbers of records and potential byte size impact.
+
+3. Give a summary attribute count breakdown. Average, Max, P75, P95. Include some breakdowns as well if any sources are particularly to cause for a very high number of attributes (P90 or above).
+
+4. Give an analysis if it seems that some attributes are duplicated. This could happen in a situation where some logs have two fields like "env" and "environ" that contain more or less the same thing. In addition you may have logs that have a "message" and "Message" fields with more or less the same payload. Those are just examples.
+
+5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.`;
+
+            let currentPrompt = defaultPrompt;
 
             const UIElements = {};
 
@@ -482,6 +530,7 @@
                 insightsStatus: document.getElementById('insightsStatus'),
                 insightsResult: document.getElementById('insightsResult'),
                 insightsSamplePercent: document.getElementById('insightsSamplePercent'),
+                customizePromptButton: document.getElementById('customizePromptButton'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -496,6 +545,14 @@
                     body: document.getElementById('groupByModalBody'),
                     applyButton: document.getElementById('applyGroupBy'),
                 },
+                promptModal: {
+                    modal: document.getElementById('promptModal'),
+                    closeButton: document.querySelector('#promptModal .close-modal'),
+                    overlay: document.querySelector('#promptModal .modal-overlay'),
+                    textarea: document.getElementById('promptTextarea'),
+                    saveButton: document.getElementById('savePrompt'),
+                    cancelButton: document.getElementById('cancelPrompt'),
+                }
             });
 
             const flatpickrConfig = {
@@ -631,7 +688,7 @@
                     UIElements.insightsStatus.textContent = 'No records collected yet.';
                     return;
                 }
-                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 25;
+                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 10;
                 const step = Math.max(1, Math.floor(100 / percent));
                 const sampleSize = Math.floor(allLogs.length / step);
                 UIElements.insightsStatus.textContent = `Ready to generate insights from a sample of ${sampleSize} records.`;
@@ -672,6 +729,7 @@
                     
                     // Reset AI Insights tab
                     UIElements.generateInsightsButton.disabled = true;
+                    UIElements.customizePromptButton.disabled = true;
                     UIElements.insightsStatus.textContent = 'Complete a sampling run to generate AI-powered insights.';
                     UIElements.insightsResult.innerHTML = '';
                     
@@ -712,6 +770,7 @@
                     // Enable AI Insights button if we have data
                     if(allLogs.length > 0) {
                         UIElements.generateInsightsButton.disabled = false;
+                        UIElements.customizePromptButton.disabled = false;
                         updateInsightsSampleCount();
                     }
                 }
@@ -1091,7 +1150,6 @@
                 UIElements.generateInsightsButton.innerHTML = `<div class="spinner w-5 h-5 border-2"></div>`;
                 UIElements.insightsResult.innerHTML = '';
                 
-                // --- SORTING AND SAMPLING LOGIC ---
                 const sortedLogs = [...allLogs].sort((a, b) => {
                     if (a.timestamp < b.timestamp) return -1;
                     if (a.timestamp > b.timestamp) return 1;
@@ -1102,7 +1160,7 @@
                     return 0;
                 });
 
-                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 25;
+                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 10;
                 const step = Math.max(1, Math.floor(100 / percent));
                 const logSample = sortedLogs.filter((_, index) => index % step === 0);
                 
@@ -1110,10 +1168,15 @@
 
                 try {
                     const csvData = convertToCSV(logSample);
+                    // --- REFACTOR #3: Send JSON with prompt to backend ---
+                    const payload = {
+                        csv_data: csvData,
+                        prompt: currentPrompt
+                    };
                     const response = await fetch('http://127.0.0.1:5002/gemini-insights', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'text/csv' },
-                        body: csvData
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
                     });
                     const data = await response.json();
                     
@@ -1131,6 +1194,20 @@
                     UIElements.insightsStatus.textContent = `Insights generated from the last sample of ${logSample.length} records.`;
                 }
             });
+
+            // --- REFACTOR #2: Event listeners for the prompt modal ---
+            UIElements.customizePromptButton.addEventListener('click', () => {
+                UIElements.promptModal.textarea.value = currentPrompt;
+                openModal(UIElements.promptModal.modal);
+            });
+            UIElements.promptModal.saveButton.addEventListener('click', () => {
+                currentPrompt = UIElements.promptModal.textarea.value;
+                closeModal(UIElements.promptModal.modal);
+            });
+            UIElements.promptModal.cancelButton.addEventListener('click', () => closeModal(UIElements.promptModal.modal));
+            UIElements.promptModal.closeButton.addEventListener('click', () => closeModal(UIElements.promptModal.modal));
+            UIElements.promptModal.overlay.addEventListener('click', () => closeModal(UIElements.promptModal.modal));
+
 
             document.addEventListener('click', (e) => {
                 if (!UIElements.headerDownloadButton.contains(e.target)) {
