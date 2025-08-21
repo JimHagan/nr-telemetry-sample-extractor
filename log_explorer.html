@@ -149,13 +149,15 @@
                 <div id="configurationPanel" class="tab-panel">
                     <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 max-w-2xl mx-auto">
                         <div class="space-y-4">
-                            <div>
-                                <label for="apiKey" class="block text-sm font-medium text-gray-300 mb-1">New Relic API Key</label>
-                                <input type="password" id="apiKey" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="NRAK-..." required>
-                            </div>
-                            <div>
-                                <label for="accountId" class="block text-sm font-medium text-gray-300 mb-1">New Relic Account ID</label>
-                                <input type="number" id="accountId" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="e.g., 1234567" required>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="apiKey" class="block text-sm font-medium text-gray-300 mb-1">New Relic API Key</label>
+                                    <input type="password" id="apiKey" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="NRAK-..." required>
+                                </div>
+                                <div>
+                                    <label for="accountId" class="block text-sm font-medium text-gray-300 mb-1">New Relic Account ID</label>
+                                    <input type="number" id="accountId" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500" placeholder="e.g., 1234567" required>
+                                </div>
                             </div>
                             <div>
                                 <label for="nrqlQuery" class="block text-sm font-medium text-gray-300 mb-1">Base NRQL Query</label>
@@ -189,6 +191,9 @@
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Set a past date/time to replay historical data.</p>
                             </div>
+                            <div class="flex space-x-4 pt-4">
+                                <button id="samplingToggle" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md transition flex items-center justify-center">Start Sampling</button>
+                            </div>
                             <div id="timeStats" class="hidden pt-4 space-y-2 text-sm">
                                 <div>
                                     <span class="font-semibold text-gray-400">First Sample:</span>
@@ -202,9 +207,6 @@
                                     <span class="font-semibold text-gray-400">Time Coverage:</span>
                                     <span id="timeCoverage" class="text-gray-300 float-right">N/A</span>
                                 </div>
-                            </div>
-                            <div class="flex space-x-4 pt-4">
-                                <button id="samplingToggle" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md transition flex items-center justify-center">Start Sampling</button>
                             </div>
                         </div>
                     </div>
@@ -390,7 +392,10 @@
 
 4. Give an analysis if it seems that some attributes are duplicated. This could happen in a situation where some logs have two fields like "env" and "environ" that contain more or less the same thing. In addition you may have logs that have a "message" and "Message" fields with more or less the same payload. Those are just examples.
 
-5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.`;
+5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.
+
+PLEASE RETURN YOUR RESPONSE IN FORMATTED HTML.
+For the HTML, please use a dark theme with a charcoal or dark gray background (like #111827), light gray text (like #d1d5db), and highlights in an emerald or teal color (like #6ee7b7).`;
 
             let currentPrompt = defaultPrompt;
 
@@ -1167,10 +1172,23 @@
                     });
                     const data = await response.json();
                     
+                    UIElements.insightsResult.innerHTML = '';
+
                     if (data.error) {
                         UIElements.insightsResult.innerHTML = `<div class="p-4 bg-yellow-900 border border-yellow-700 text-yellow-200 rounded-lg">${data.error}</div>`;
-                    } else {
-                        UIElements.insightsResult.innerHTML = marked.parse(data.insights);
+                    } else if (typeof data.insights === 'string') {
+                        const htmlRegex = /<!doctype html[^>]*>[\s\S]*<\/html>/i;
+                        const match = data.insights.match(htmlRegex);
+
+                        if (match && match[0]) {
+                            const iframe = document.createElement('iframe');
+                            iframe.className = 'w-full h-[40rem] rounded-lg border border-gray-700';
+                            iframe.setAttribute('frameborder', '0');
+                            iframe.srcdoc = match[0]; 
+                            UIElements.insightsResult.appendChild(iframe);
+                        } else {
+                            UIElements.insightsResult.innerHTML = marked.parse(data.insights);
+                        }
                     }
 
                 } catch (err) {
@@ -1185,7 +1203,7 @@
             UIElements.customizePromptButton.addEventListener('click', () => {
                 UIElements.promptModal.textarea.value = currentPrompt;
                 openModal(UIElements.promptModal.modal);
-});
+            });
             UIElements.promptModal.saveButton.addEventListener('click', () => {
                 currentPrompt = UIElements.promptModal.textarea.value;
                 closeModal(UIElements.promptModal.modal);
