@@ -1042,7 +1042,7 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 if (attrCountThreshold > 25) {
                      recommendationsHtml += `<div class="bg-gray-800 p-4 rounded-lg">
                         <h3 class="font-semibold text-lg text-blue-400 mb-2">High Attribute Count</h3>
-                        <p class="text-gray-300">The 95th percentile for attribute count is <strong class="font-bold">${attrCountThreshold.toFixed(0)}</strong>, which is higher than the recommended 25. High attribute counts can increase ingest costs. Consider using the "Min Attrs" filter in the Live Tail to investigate these records and see if all attributes are necessary.</p>
+                        <p class="text-gray-300">The 95th percentile for attribute count is <strong class="font-bold">${attrCountThreshold.toFixed(0)}</strong>, which may be higher than expected. High attribute counts can increase ingest costs. Consider using the "Min Attrs" filter in the Live Tail to investigate these records and see if all attributes are necessary.</p>
                     </div>`;
                 }
 
