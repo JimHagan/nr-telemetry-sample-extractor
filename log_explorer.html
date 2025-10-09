@@ -109,7 +109,7 @@
                         <div id="sampleCounter" class="text-xs text-gray-400"></div>
                         <div id="headerDownloadContainer" class="relative mt-2">
                             <button id="headerDownloadButton" class="flex items-center bg-gray-800 hover:bg-gray-700 text-white font-semibold py-1 px-3 rounded-md transition text-xs disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                                Download
+                                Download All
                                 <svg class="w-3 h-3 ml-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
                             <div id="headerDownloadMenu" class="hidden absolute right-0 mt-2 w-32 bg-gray-900 rounded-md shadow-lg z-10 border border-gray-700">
@@ -412,6 +412,7 @@
             let currentSampleCount = 0;
             let maxSamples = 10;
             let accountName = null;
+            let analysisDataCache = {};
 
             const defaultPrompt = `Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
 
@@ -743,6 +744,7 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     allLogs = []; 
                     allFoundAttributes = new Set();
                     attributeStats = {};
+                    analysisDataCache = {};
                     sizeThreshold = Infinity;
                     attrCountThreshold = Infinity;
                     UIElements.logContainer.innerHTML = '';
@@ -915,8 +917,22 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
             const renderAnalysis = (stats) => {
                 const formatBytes = (bytes) => bytes > 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes.toFixed(1)} B`;
                 
+                const createDownloadDropdownHTML = (type) => `
+                    <div class="relative ml-auto">
+                        <button data-download-toggle="${type}" class="text-gray-400 hover:text-white" title="Download Data">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        </button>
+                        <div id="downloadMenu_${type}" class="hidden absolute right-0 mt-2 w-32 bg-gray-900 rounded-md shadow-lg z-20 border border-gray-700">
+                            <a href="#" data-download-type="${type}" data-format="json" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800">JSON</a>
+                            <a href="#" data-download-type="${type}" data-format="csv" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800">CSV</a>
+                        </div>
+                    </div>
+                `;
+
                 const createStatCard = (title, data, configType = null) => {
                     let configHtml = configType ? `<button onclick="openGroupByModal('${configType}')" class="ml-2 text-emerald-400 hover:text-emerald-300" title="Configure Breakdown Attribute"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg></button>` : '';
+                    let downloadHtml = configType ? createDownloadDropdownHTML(configType === 'count' ? 'counts' : 'bytes') : '';
+                    
                     let content = '';
                     const sortedData = Object.entries(data).sort((a,b) => b[1] - a[1]);
 
@@ -925,7 +941,7 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     } else { 
                         content = '<p class="text-gray-500">No data</p>'; 
                     }
-                    return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml}</h3><div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-2">${content}</div></div>`;
+                    return `<div class="bg-gray-800 p-3 rounded-lg"><h3 class="font-semibold text-gray-300 mb-2 flex items-center">${title} ${configHtml} ${downloadHtml}</h3><div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-2">${content}</div></div>`;
                 };
 
                 UIElements.firstSampleTime.textContent = new Date(stats.firstTimestamp).toLocaleString();
@@ -962,10 +978,14 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     totalSize: attributeStats[key].totalSize,
                     uniqueCount: attributeStats[key].uniques.size
                 })).sort((a, b) => b.totalSize - a.totalSize).slice(0, 50);
+                
+                analysisDataCache.counts = stats.countByGroup;
+                analysisDataCache.bytes = stats.byteByGroup;
+                analysisDataCache.attributes = attributeData;
 
                 const attributeTable = `
                     <div class="md:col-span-2 bg-gray-800 p-3 rounded-lg">
-                        <h3 class="font-semibold text-gray-300 mb-2">Top Attributes by Cumulative Size</h3>
+                        <h3 class="font-semibold text-gray-300 mb-2 flex items-center">Top Attributes by Cumulative Size ${createDownloadDropdownHTML('attributes')}</h3>
                         <div class="h-48 overflow-y-auto custom-scrollbar">
                             <table class="w-full text-left text-sm attribute-table">
                                 <thead><tr><th>Attribute</th><th>Freq.</th><th>Cum. Contrib.</th><th>Avg Size</th><th>Max Size</th><th>Uniques</th></tr></thead>
@@ -1105,17 +1125,20 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
             UIElements.multilineFilter.addEventListener('change', () => renderLogs(allLogs));
 
             UIElements.analysisContent.addEventListener('click', (e) => {
-                const target = e.target.closest('button');
-                if (!target || !target.dataset.attrName) return;
+                const button = e.target.closest('button');
+                if (!button) return;
 
-                const attrName = target.dataset.attrName;
-                const type = target.dataset.type;
+                // Handle attribute example clicks
+                if (button.dataset.attrName) {
+                    const attrName = button.dataset.attrName;
+                    const type = button.dataset.type;
 
-                if (type === 'uniques') {
-                    showUniqueValues(attrName);
-                } else {
-                    const logIndex = allLogs.findIndex(log => log.hasOwnProperty(attrName));
-                    showExample(logIndex, attrName);
+                    if (type === 'uniques') {
+                        showUniqueValues(attrName);
+                    } else {
+                        const logIndex = allLogs.findIndex(log => log.hasOwnProperty(attrName));
+                        showExample(logIndex, attrName);
+                    }
                 }
             });
             
@@ -1252,40 +1275,68 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
 
             document.addEventListener('click', (e) => {
-                if (!UIElements.headerDownloadButton.contains(e.target)) {
-                    UIElements.headerDownloadMenu.classList.add('hidden');
+                // --- Consolidated Menu Logic ---
+                // Get the specific toggle button that might have been clicked
+                const downloadToggle = e.target.closest('[data-download-toggle]');
+                const headerToggle = UIElements.headerDownloadButton.contains(e.target);
+
+                // If a toggle was clicked, handle its menu
+                if (downloadToggle || headerToggle) {
+                    e.stopPropagation();
+                    const menu = downloadToggle
+                        ? document.getElementById(`downloadMenu_${downloadToggle.dataset.downloadToggle}`)
+                        : UIElements.headerDownloadMenu;
+                    
+                    // Hide all menus first
+                    document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => {
+                        if (m !== menu) m.classList.add('hidden');
+                    });
+                    
+                    // Then toggle the one that was clicked
+                    if (menu) menu.classList.toggle('hidden');
+                
+                } else { // If the click was not on a toggle, check if it was on a menu link or outside all menus
+                    const downloadLink = e.target.closest('[data-download-type]');
+                    if (downloadLink && downloadLink.tagName === 'A') { // A specific analysis download link was clicked
+                        e.preventDefault();
+                        const type = downloadLink.dataset.downloadType;
+                        const format = downloadLink.dataset.format;
+                        handleAnalysisDownload(type, format);
+                        downloadLink.closest('[id^="downloadMenu_"]').classList.add('hidden');
+                    } else if (!e.target.closest('[id^="downloadMenu_"]') && !e.target.closest('#headerDownloadMenu')) {
+                        // The click was outside all menus, so hide them all
+                        document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => m.classList.add('hidden'));
+                    }
                 }
             });
             
             function downloadData(format) {
+                if (allLogs.length === 0) {
+                    alert("No events to download.");
+                    return;
+                }
+                
+                const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
+                const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
+                const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
+                const filename = `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
+                
+                let content = '';
+                let mimeType = '';
+
+                if (format === 'json') {
+                    content = JSON.stringify(allLogs, null, 2);
+                    mimeType = 'application/json';
+                } else if (format === 'csv') {
+                    content = convertToCSV(allLogs);
+                    mimeType = 'text/csv';
+                }
+                triggerDownload(content, filename, mimeType);
+            }
+
+            function triggerDownload(content, filename, mimeType) {
                 document.body.style.cursor = 'wait';
-
                 try {
-                    if (allLogs.length === 0) {
-                        alert("No events to download.");
-                        return;
-                    }
-                    
-                    const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
-                    const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
-                    
-                    const accountPart = (accountName || 'account')
-                                            .toLowerCase()
-                                            .replace(/\s+/g, '-');
-                    
-                    const filename = `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
-                    
-                    let content = '';
-                    let mimeType = '';
-
-                    if (format === 'json') {
-                        content = JSON.stringify(allLogs, null, 2);
-                        mimeType = 'application/json';
-                    } else if (format === 'csv') {
-                        content = convertToCSV(allLogs);
-                        mimeType = 'text/csv';
-                    }
-
                     const blob = new Blob([content], { type: mimeType });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -1296,9 +1347,61 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                 } finally {
-                    setTimeout(() => {
-                        document.body.style.cursor = 'default';
-                    }, 100);
+                    setTimeout(() => { document.body.style.cursor = 'default'; }, 100);
+                }
+            }
+            
+            function handleAnalysisDownload(type, format) {
+                let data;
+                let filename;
+                
+                switch(type) {
+                    case 'counts':
+                        data = analysisDataCache.counts || {};
+                        filename = `counts_breakdown_by_${countByAttribute}.${format}`;
+                        break;
+                    case 'bytes':
+                        data = analysisDataCache.bytes || {};
+                        filename = `bytes_breakdown_by_${bytesGroupByAttribute}.${format}`;
+                        break;
+                    case 'attributes':
+                        data = analysisDataCache.attributes || [];
+                        filename = `top_attributes_by_cumulative_size.${format}`;
+                        break;
+                    default:
+                        return;
+                }
+
+                let content = '';
+                let mimeType = '';
+                if (format === 'json') {
+                    content = JSON.stringify(data, null, 2);
+                    mimeType = 'application/json';
+                } else {
+                    content = convertObjectToCSV(data);
+                    mimeType = 'text/csv';
+                }
+                triggerDownload(content, filename, mimeType);
+            }
+
+            function convertObjectToCSV(data) {
+                if (!data) return '';
+                // Handle Array of Objects (for attributes table)
+                if (Array.isArray(data)) {
+                    if (data.length === 0) return '';
+                    const headers = Object.keys(data[0]);
+                    const rows = data.map(row => 
+                        headers.map(header => JSON.stringify(row[header] ?? '')).join(',')
+                    );
+                    return [headers.join(','), ...rows].join('\n');
+                } 
+                // Handle Simple Key-Value Object (for breakdowns)
+                else {
+                    const headers = ['key', 'value'];
+                    const rows = Object.entries(data).map(([key, value]) => 
+                        [JSON.stringify(key), JSON.stringify(value)].join(',')
+                    );
+                     return [headers.join(','), ...rows].join('\n');
                 }
             }
 
