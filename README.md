@@ -50,7 +50,7 @@ This application uses a Python Flask backend to securely handle API requests and
 1.  **Start the Server:**
     With your virtual environment still active, run the Flask server.
     ```bash
-    python log_server.py
+    python app.py
     ```
     The server will start and listen for requests on `http://127.0.0.1:5002`.
 
