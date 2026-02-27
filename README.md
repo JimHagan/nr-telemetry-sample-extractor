@@ -2,11 +2,8 @@
 
 ## Purpose
 
-### NOTE: A deployed version of this app can be accessed [here](https://nr-telemetry-analyzer.onrender.com/)
-
 This tool allows you to analyze Telemetry data in real time to help find areas for optimization and a variety of other anomalies. This will also work with other telemetry types beyond logs, such as events or traces, as long as the data can be queried via NRQL.
 
-[![view the demo](video_thumbnail.png)](https://drive.google.com/file/d/1C-id7wDnMBBkwjDm1UwtGUfWGhKd0RxF/view?usp=sharing)
 ---
 
 ## How to Set Up and Run

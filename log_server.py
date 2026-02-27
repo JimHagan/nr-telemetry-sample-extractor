@@ -3,7 +3,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import requests
 import glob
-import google.generativeai as genai
 import json
 
 # Initialize the Flask app
@@ -63,61 +62,6 @@ def handle_account_name_query():
     }
     
     return forward_to_nerdgraph(graphql_payload, api_key)
-
-
-@app.route('/gemini-insights', methods=['POST'])
-def handle_gemini_insights():
-    """Receives log data and a prompt, then gets insights from the Gemini API."""
-    data = request.json
-    csv_data = data.get('csv_data')
-    custom_prompt = data.get('prompt')
-    client_api_key = data.get('api_key')
-    client_model = data.get('model')
-    
-    # --- REFACTOR: Use client-side key or fallback to environment variable ---
-    api_key_to_use = client_api_key
-    if not api_key_to_use:
-        api_key_to_use = os.environ.get("GEMINI_API_KEY")
-
-    if not api_key_to_use:
-        print("WARNING: Gemini API Key is not configured on client or server. AI Insights will fail.")
-        api_key_to_use = ""
-
-    # --- REFACTOR: Use client-side model or fallback to default ---
-    model_to_use = client_model if client_model else 'gemini-1.5-flash-latest'
-
-    genai.configure(api_key=api_key_to_use)
-    model = genai.GenerativeModel(model_to_use)
-    
-    if not csv_data:
-        return jsonify({"error": "Log data (CSV) is missing."}), 400
-
-    DEFAULT_PROMPT = """
-    Analyze this data for the following, referencing New Relic's best practices (https://docs.newrelic.com/docs/logs/get-started/logging-best-practices/) where applicable:
-
-    1. Does it appear that there are multi-line logs? These are logs that are abruptly truncated with a '\\n'. That can lead to a duplication of the entire log including all attributes. Give a summary of the % of times this occurs in the sample. And a % of bytes (estimated) in the sample set are impacted.
-
-    2. Give a summary of whether any logs or metrics are being duplicated completely. In other words they are coming from different sources but are mostly the same. Provide some statistically summary of the impact in terms of numbers of records and potential byte size impact.
-
-    3. Give a summary attribute count breakdown. Average, Max, P75, P95. Include some breakdowns as well if any sources are particularly to cause for a very high number of attributes (P90 or above).
-
-    4. Give an analysis if it seems that some attributes are duplicated. This could happen in a situation where some logs have two fields like "env" and "environ" that contain more or less the same thing. In addition you may have logs that have a "message" and "Message" fields with more or less the same payload. Those are just examples.
-
-    5. If you can find any example of garbled text or very difficult to understand text. These could be character codes, base 64, hex or just something that may not be a good fit for log data.
-
-    PLEASE RETURN YOUR RESPONSE IN FORMATTED HTML.
-    For the HTML, please use a dark theme with a charcoal or dark gray background (like #111827), light gray text (like #d1d5db), and highlights in an emerald or teal color (like #6ee7b7).
-    """
-    
-    prompt_to_use = custom_prompt if custom_prompt else DEFAULT_PROMPT
-    final_prompt = f"{prompt_to_use}\n\nHere is the data:\n---\n{csv_data}\n---"
-
-    try:
-        response = model.generate_content(final_prompt)
-        return jsonify({"insights": response.text})
-    except Exception as e:
-        print(f"An error occurred with the Gemini API: {e}")
-        return jsonify({"error": f"An error occurred while contacting the AI service: {str(e)}"}), 503
 
 
 def forward_to_nerdgraph(payload, api_key):
