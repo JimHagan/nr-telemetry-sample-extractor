@@ -140,7 +140,6 @@
                     <button data-tab="analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Analysis</button>
                     <button data-tab="livetail" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Live Tail</button>
                     <button data-tab="recommendations" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">Recommendations</button>
-                    <button data-tab="aiinsights" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">AI Insights (Experimental)</button>
                     <button data-tab="about" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm text-gray-400 border-transparent hover:text-gray-300 hover:border-gray-500">About This Tool</button>
                 </nav>
             </div>
@@ -495,10 +494,6 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 headerDownloadJson: document.getElementById('headerDownloadJson'),
                 headerDownloadCsv: document.getElementById('headerDownloadCsv'),
                 recommendationsContent: document.getElementById('recommendationsContent'),
-                generateInsightsButton: document.getElementById('generateInsightsButton'),
-                insightsStatus: document.getElementById('insightsStatus'),
-                insightsResult: document.getElementById('insightsResult'),
-                insightsSamplePercent: document.getElementById('insightsSamplePercent'),
                 customizePromptButton: document.getElementById('customizePromptButton'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
@@ -652,17 +647,6 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 }
             };
 
-            const updateInsightsSampleCount = () => {
-                if (allLogs.length === 0) {
-                    UIElements.insightsStatus.textContent = 'No records collected yet.';
-                    return;
-                }
-                const percent = parseInt(UIElements.insightsSamplePercent.value, 10) || 10;
-                const step = Math.max(1, Math.floor(100 / percent));
-                const sampleSize = Math.floor(allLogs.length / step);
-                UIElements.insightsStatus.textContent = `Ready to generate insights from a sample of ${sampleSize} records.`;
-            };
-
             const toggleSampling = () => {
                 const configInputs = [UIElements.apiKey, UIElements.accountId, UIElements.nrqlQuery, UIElements.sampleFrequency, UIElements.sampleWindow, UIElements.limitClause, UIElements.arbitraryStartTime, UIElements.maxSamples];
                 if (!isSampling) { // STARTING
@@ -697,12 +681,7 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     [UIElements.firstSampleTime, UIElements.lastSampleTime, UIElements.timeCoverage].forEach(el => el.textContent = 'N/A');
                     hideError();
                     
-                    // Reset AI Insights tab
-                    UIElements.generateInsightsButton.disabled = true;
-                    UIElements.customizePromptButton.disabled = true;
-                    UIElements.insightsStatus.textContent = 'Complete a sampling run to generate AI-powered insights.';
-                    UIElements.insightsResult.innerHTML = '';
-                    
+                   
                     const samplingIndicator = document.getElementById('samplingStatusIndicator');
                     if (samplingIndicator) {
                         samplingIndicator.classList.remove('hidden');
@@ -737,12 +716,6 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     }
                     UIElements.headerStatusInactive.classList.remove('hidden');
                     
-                    // Enable AI Insights button if we have data
-                    if(allLogs.length > 0) {
-                        UIElements.generateInsightsButton.disabled = false;
-                        UIElements.customizePromptButton.disabled = false;
-                        updateInsightsSampleCount();
-                    }
                 }
             };
 
