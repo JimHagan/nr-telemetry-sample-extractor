@@ -1,4 +1,4 @@
-# Telemetry Sampler & Analyzer (UI)
+# Telemetry Sample Extractor (UI)
 
 ## Purpose
 
