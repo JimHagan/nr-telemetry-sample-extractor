@@ -109,7 +109,7 @@
                         <div id="sampleCounter" class="text-xs text-gray-400"></div>
                         <div id="headerDownloadContainer" class="relative mt-2">
                             <button id="headerDownloadButton" class="flex items-center bg-gray-800 hover:bg-gray-700 text-white font-semibold py-1 px-3 rounded-md transition text-xs disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                                Download All
+                                <span>Download All</span>
                                 <svg class="w-3 h-3 ml-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
                             <div id="headerDownloadMenu" class="hidden absolute right-0 mt-2 w-32 bg-gray-900 rounded-md shadow-lg z-10 border border-gray-700">
@@ -185,7 +185,7 @@
                                 <div class="relative">
                                     <input type="text" id="arbitraryStartTime" name="arbitraryStartTime" placeholder="Default: NOW" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
                                     <div id="startTimeIcon" class="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer">
-                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                     </div>
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Set a past date/time to replay historical data.</p>
@@ -340,6 +340,43 @@
     </div>
     
     <script>
+        // Web Worker logic for non-blocking data processing
+        const workerCode = `
+        self.onmessage = function(e) {
+            const { type, logs, attributes, format, analysisData } = e.data;
+            if (format === 'json') {
+                self.postMessage({ type: 'complete', result: JSON.stringify(logs || analysisData, null, 2) });
+            } else if (format === 'csv') {
+                if (type === 'allLogs') {
+                    const headers = Array.from(attributes);
+                    const chunks = [headers.join(',') + '\\n'];
+                    for (let i = 0; i < logs.length; i++) {
+                        const values = headers.map(h => {
+                            const v = String(logs[i][h] ?? '');
+                            return v.includes('"') || v.includes(',') ? '"' + v.replace(/"/g, '""') + '"' : v;
+                        });
+                        chunks.push(values.join(',') + '\\n');
+                        if (i % 500 === 0) self.postMessage({ type: 'progress', percent: Math.round((i / logs.length) * 100) });
+                    }
+                    self.postMessage({ type: 'complete', result: chunks });
+                } else {
+                    let csv = '';
+                    if (Array.isArray(analysisData)) {
+                        if (analysisData.length > 0) {
+                            const headers = Object.keys(analysisData[0]);
+                            csv += headers.join(',') + '\\n';
+                            analysisData.forEach(row => csv += headers.map(h => JSON.stringify(row[h] ?? '')).join(',') + '\\n');
+                        }
+                    } else {
+                        csv += 'key,value\\n';
+                        Object.entries(analysisData).forEach(([k, v]) => csv += JSON.stringify(k) + ',' + JSON.stringify(v) + '\\n');
+                    }
+                    self.postMessage({ type: 'complete', result: csv });
+                }
+            }
+        };`;
+        const downloadWorker = new Worker(URL.createObjectURL(new Blob([workerCode], {type: 'application/javascript'})));
+
         document.addEventListener('DOMContentLoaded', () => {
             let samplingInterval;
             let allLogs = [];
@@ -494,7 +531,6 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 headerDownloadJson: document.getElementById('headerDownloadJson'),
                 headerDownloadCsv: document.getElementById('headerDownloadCsv'),
                 recommendationsContent: document.getElementById('recommendationsContent'),
-                customizePromptButton: document.getElementById('customizePromptButton'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -1097,21 +1133,17 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
             UIElements.headerDownloadJson.addEventListener('click', (e) => {
                 e.preventDefault();
-                downloadData('json');
+                downloadData('allLogs', 'json');
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
 
             UIElements.headerDownloadCsv.addEventListener('click', (e) => {
                 e.preventDefault();
-                downloadData('csv');
+                downloadData('allLogs', 'csv');
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
 
 
-            UIElements.customizePromptButton.addEventListener('click', () => {
-                UIElements.promptModal.textarea.value = currentPrompt;
-                openModal(UIElements.promptModal.modal);
-            });
             UIElements.promptModal.saveButton.addEventListener('click', () => {
                 currentPrompt = UIElements.promptModal.textarea.value;
                 closeModal(UIElements.promptModal.modal);
@@ -1148,7 +1180,7 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                         e.preventDefault();
                         const type = downloadLink.dataset.downloadType;
                         const format = downloadLink.dataset.format;
-                        handleAnalysisDownload(type, format);
+                        downloadData(type, format);
                         downloadLink.closest('[id^="downloadMenu_"]').classList.add('hidden');
                     } else if (!e.target.closest('[id^="downloadMenu_"]') && !e.target.closest('#headerDownloadMenu')) {
                         // The click was outside all menus, so hide them all
@@ -1157,126 +1189,62 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 }
             });
             
-            function downloadData(format) {
-                if (allLogs.length === 0) {
+            // Background processing download logic
+            function downloadData(type, format) {
+                if (type === 'allLogs' && allLogs.length === 0) {
                     alert("No events to download.");
                     return;
                 }
-                
-                const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
-                const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
-                const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
-                const filename = `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
-                
-                let content = '';
-                let mimeType = '';
 
-                if (format === 'json') {
-                    content = JSON.stringify(allLogs, null, 2);
-                    mimeType = 'application/json';
-                } else if (format === 'csv') {
-                    content = convertToCSV(allLogs);
-                    mimeType = 'text/csv';
+                const originalBtnText = UIElements.headerDownloadButton.firstChild.textContent;
+                if (type === 'allLogs') {
+                    UIElements.headerDownloadButton.disabled = true;
+                    UIElements.headerDownloadButton.firstChild.textContent = "Processing 0% ";
                 }
-                triggerDownload(content, filename, mimeType);
-            }
-
-            function triggerDownload(content, filename, mimeType) {
                 document.body.style.cursor = 'wait';
-                try {
-                    const blob = new Blob([content], { type: mimeType });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                } finally {
-                    setTimeout(() => { document.body.style.cursor = 'default'; }, 100);
-                }
-            }
-            
-            function handleAnalysisDownload(type, format) {
-                let data;
-                let filename;
-                
-                switch(type) {
-                    case 'counts':
-                        data = analysisDataCache.counts || {};
-                        filename = `counts_breakdown_by_${countByAttribute}.${format}`;
-                        break;
-                    case 'bytes':
-                        data = analysisDataCache.bytes || {};
-                        filename = `bytes_breakdown_by_${bytesGroupByAttribute}.${format}`;
-                        break;
-                    case 'attributes':
-                        data = analysisDataCache.attributes || [];
-                        filename = `top_attributes_by_cumulative_size.${format}`;
-                        break;
-                    default:
+
+                downloadWorker.postMessage({
+                    type: type,
+                    logs: type === 'allLogs' ? allLogs : null,
+                    analysisData: type !== 'allLogs' ? analysisDataCache[type] : null,
+                    attributes: Array.from(allFoundAttributes),
+                    format: format
+                });
+
+                downloadWorker.onmessage = function(e) {
+                    if (e.data.type === 'progress') {
+                        if (type === 'allLogs') {
+                            UIElements.headerDownloadButton.firstChild.textContent = `Processing ${e.data.percent}% `;
+                        }
                         return;
-                }
+                    }
 
-                let content = '';
-                let mimeType = '';
-                if (format === 'json') {
-                    content = JSON.stringify(data, null, 2);
-                    mimeType = 'application/json';
-                } else {
-                    content = convertObjectToCSV(data);
-                    mimeType = 'text/csv';
-                }
-                triggerDownload(content, filename, mimeType);
-            }
+                    if (e.data.type === 'complete') {
+                        const firstTimestamp = allLogs.length > 0 ? new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                        const lastTimestamp = allLogs.length > 0 ? new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                        const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
+                        
+                        let filename = type === 'allLogs' ? `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}` : `${type}.${format}`;
+                        const mimeType = format === 'json' ? 'application/json' : 'text/csv';
 
-            function convertObjectToCSV(data) {
-                if (!data) return '';
-                // Handle Array of Objects (for attributes table)
-                if (Array.isArray(data)) {
-                    if (data.length === 0) return '';
-                    const headers = Object.keys(data[0]);
-                    const rows = data.map(row => 
-                        headers.map(header => JSON.stringify(row[header] ?? '')).join(',')
-                    );
-                    return [headers.join(','), ...rows].join('\n');
-                } 
-                // Handle Simple Key-Value Object (for breakdowns)
-                else {
-                    const headers = ['key', 'value'];
-                    const rows = Object.entries(data).map(([key, value]) => 
-                        [JSON.stringify(key), JSON.stringify(value)].join(',')
-                    );
-                     return [headers.join(','), ...rows].join('\n');
-                }
-            }
+                        const blob = new Blob(Array.isArray(e.data.result) ? e.data.result : [e.data.result], { type: mimeType });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
 
-            function convertToCSV(data) {
-                if (data.length === 0) return '';
-                const headers = [...allFoundAttributes];
-                const csvRows = [];
-                csvRows.push(headers.join(','));
-
-                for (const row of data) {
-                    const values = headers.map(header => {
-                        let value = row[header];
-                        if (value === null || value === undefined) {
-                            value = '';
-                        } else if (typeof value === 'object') {
-                            value = JSON.stringify(value);
+                        if (type === 'allLogs') {
+                            UIElements.headerDownloadButton.disabled = false;
+                            UIElements.headerDownloadButton.firstChild.textContent = originalBtnText;
                         }
-                        const stringValue = String(value);
-                        if (stringValue.includes('"') || stringValue.includes(',')) {
-                            return `"${stringValue.replace(/"/g, '""')}"`;
-                        }
-                        return stringValue;
-                    });
-                    csvRows.push(values.join(','));
-                }
-                return csvRows.join('\n');
+                        document.body.style.cursor = 'default';
+                    }
+                };
             }
-
         });
     </script>
 </body>
