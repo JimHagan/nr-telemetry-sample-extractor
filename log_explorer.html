@@ -185,7 +185,7 @@
                                 <div class="relative">
                                     <input type="text" id="arbitraryStartTime" name="arbitraryStartTime" placeholder="Default: NOW" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500">
                                     <div id="startTimeIcon" class="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer">
-                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                     </div>
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Set a past date/time to replay historical data.</p>
@@ -340,6 +340,58 @@
     </div>
     
     <script>
+        // Define the background worker for memory-efficient processing
+        const workerCode = `
+        self.onmessage = function(e) {
+            const { type, logs, attributes, format, analysisData } = e.data;
+            
+            if (format === 'json') {
+                const jsonString = JSON.stringify(logs || analysisData, null, 2);
+                self.postMessage({ result: jsonString });
+            } else if (format === 'csv') {
+                if (type === 'allLogs') {
+                    const headers = Array.from(attributes);
+                    const chunks = [];
+                    chunks.push(headers.join(',') + '\\n');
+                    
+                    for (const row of logs) {
+                        const values = headers.map(header => {
+                            let value = row[header] ?? '';
+                            if (typeof value === 'object') value = JSON.stringify(value);
+                            const stringValue = String(value);
+                            return stringValue.includes('"') || stringValue.includes(',') 
+                                ? '"' + stringValue.replace(/"/g, '""') + '"' 
+                                : stringValue;
+                        });
+                        chunks.push(values.join(',') + '\\n');
+                    }
+                    self.postMessage({ result: chunks });
+                } else {
+                    // Handle breakdown object to CSV conversion
+                    const data = analysisData;
+                    let csv = '';
+                    if (Array.isArray(data)) {
+                        if (data.length > 0) {
+                            const headers = Object.keys(data[0]);
+                            csv += headers.join(',') + '\\n';
+                            data.forEach(row => {
+                                csv += headers.map(h => JSON.stringify(row[h] ?? '')).join(',') + '\\n';
+                            });
+                        }
+                    } else {
+                        csv += 'key,value\\n';
+                        Object.entries(data).forEach(([k, v]) => {
+                            csv += JSON.stringify(k) + ',' + JSON.stringify(v) + '\\n';
+                        });
+                    }
+                    self.postMessage({ result: csv });
+                }
+            }
+        };
+        `;
+        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+        const downloadWorker = new Worker(URL.createObjectURL(workerBlob));
+
         document.addEventListener('DOMContentLoaded', () => {
             let samplingInterval;
             let allLogs = [];
@@ -494,7 +546,6 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                 headerDownloadJson: document.getElementById('headerDownloadJson'),
                 headerDownloadCsv: document.getElementById('headerDownloadCsv'),
                 recommendationsContent: document.getElementById('recommendationsContent'),
-                customizePromptButton: document.getElementById('customizePromptButton'),
                 attributeModal: {
                     modal: document.getElementById('attributeModal'),
                     closeButton: document.querySelector('#attributeModal .close-modal'),
@@ -1097,21 +1148,17 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
             UIElements.headerDownloadJson.addEventListener('click', (e) => {
                 e.preventDefault();
-                downloadData('json');
+                downloadData('allLogs', 'json');
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
 
             UIElements.headerDownloadCsv.addEventListener('click', (e) => {
                 e.preventDefault();
-                downloadData('csv');
+                downloadData('allLogs', 'csv');
                 UIElements.headerDownloadMenu.classList.add('hidden');
             });
 
 
-            UIElements.customizePromptButton.addEventListener('click', () => {
-                UIElements.promptModal.textarea.value = currentPrompt;
-                openModal(UIElements.promptModal.modal);
-            });
             UIElements.promptModal.saveButton.addEventListener('click', () => {
                 currentPrompt = UIElements.promptModal.textarea.value;
                 closeModal(UIElements.promptModal.modal);
@@ -1122,69 +1169,80 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
 
             document.addEventListener('click', (e) => {
-                // --- Consolidated Menu Logic ---
-                // Get the specific toggle button that might have been clicked
                 const downloadToggle = e.target.closest('[data-download-toggle]');
                 const headerToggle = UIElements.headerDownloadButton.contains(e.target);
 
-                // If a toggle was clicked, handle its menu
                 if (downloadToggle || headerToggle) {
                     e.stopPropagation();
                     const menu = downloadToggle
                         ? document.getElementById(`downloadMenu_${downloadToggle.dataset.downloadToggle}`)
                         : UIElements.headerDownloadMenu;
                     
-                    // Hide all menus first
                     document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => {
                         if (m !== menu) m.classList.add('hidden');
                     });
                     
-                    // Then toggle the one that was clicked
                     if (menu) menu.classList.toggle('hidden');
                 
-                } else { // If the click was not on a toggle, check if it was on a menu link or outside all menus
+                } else { 
                     const downloadLink = e.target.closest('[data-download-type]');
-                    if (downloadLink && downloadLink.tagName === 'A') { // A specific analysis download link was clicked
+                    if (downloadLink && downloadLink.tagName === 'A') { 
                         e.preventDefault();
                         const type = downloadLink.dataset.downloadType;
                         const format = downloadLink.dataset.format;
-                        handleAnalysisDownload(type, format);
+                        // Use unified background download for analysis tables too
+                        downloadData(type, format);
                         downloadLink.closest('[id^="downloadMenu_"]').classList.add('hidden');
                     } else if (!e.target.closest('[id^="downloadMenu_"]') && !e.target.closest('#headerDownloadMenu')) {
-                        // The click was outside all menus, so hide them all
                         document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => m.classList.add('hidden'));
                     }
                 }
             });
             
-            function downloadData(format) {
-                if (allLogs.length === 0) {
+            // Unified download logic using Web Worker to handle large datasets without hanging
+            function downloadData(type, format) {
+                const logsToProcess = (type === 'allLogs') ? allLogs : null;
+                const analysisToProcess = (type !== 'allLogs') ? (analysisDataCache[type === 'counts' ? 'counts' : (type === 'bytes' ? 'bytes' : 'attributes')]) : null;
+
+                if (type === 'allLogs' && (!logsToProcess || logsToProcess.length === 0)) {
                     alert("No events to download.");
                     return;
                 }
-                
-                const firstTimestamp = new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-');
-                const lastTimestamp = new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-');
-                const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
-                const filename = `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}`;
-                
-                let content = '';
-                let mimeType = '';
 
-                if (format === 'json') {
-                    content = JSON.stringify(allLogs, null, 2);
-                    mimeType = 'application/json';
-                } else if (format === 'csv') {
-                    content = convertToCSV(allLogs);
-                    mimeType = 'text/csv';
+                // UI Feedback
+                const originalText = (type === 'allLogs') ? UIElements.headerDownloadButton.innerText : 'Processing...';
+                if (type === 'allLogs') {
+                    UIElements.headerDownloadButton.disabled = true;
+                    UIElements.headerDownloadButton.innerText = "Processing...";
                 }
-                triggerDownload(content, filename, mimeType);
-            }
-
-            function triggerDownload(content, filename, mimeType) {
                 document.body.style.cursor = 'wait';
-                try {
-                    const blob = new Blob([content], { type: mimeType });
+
+                // Send to background worker
+                downloadWorker.postMessage({
+                    type: type,
+                    logs: logsToProcess,
+                    analysisData: analysisToProcess,
+                    attributes: Array.from(allFoundAttributes),
+                    format: format
+                });
+
+                downloadWorker.onmessage = function(e) {
+                    const firstTsStr = allLogs.length > 0 ? new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                    const lastTsStr = allLogs.length > 0 ? new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                    const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
+                    
+                    let filename = '';
+                    if (type === 'allLogs') {
+                        filename = `${accountPart}-samples-${firstTsStr}-to-${lastTsStr}.${format}`;
+                    } else {
+                        filename = `${type}_breakdown_${Date.now()}.${format}`;
+                    }
+
+                    const content = e.data.result;
+                    const mimeType = format === 'json' ? 'application/json' : 'text/csv';
+                    
+                    // Trigger actual download via memory-efficient Blob URL
+                    const blob = new Blob(Array.isArray(content) ? content : [content], { type: mimeType });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
@@ -1193,88 +1251,14 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                } finally {
-                    setTimeout(() => { document.body.style.cursor = 'default'; }, 100);
-                }
-            }
-            
-            function handleAnalysisDownload(type, format) {
-                let data;
-                let filename;
-                
-                switch(type) {
-                    case 'counts':
-                        data = analysisDataCache.counts || {};
-                        filename = `counts_breakdown_by_${countByAttribute}.${format}`;
-                        break;
-                    case 'bytes':
-                        data = analysisDataCache.bytes || {};
-                        filename = `bytes_breakdown_by_${bytesGroupByAttribute}.${format}`;
-                        break;
-                    case 'attributes':
-                        data = analysisDataCache.attributes || [];
-                        filename = `top_attributes_by_cumulative_size.${format}`;
-                        break;
-                    default:
-                        return;
-                }
 
-                let content = '';
-                let mimeType = '';
-                if (format === 'json') {
-                    content = JSON.stringify(data, null, 2);
-                    mimeType = 'application/json';
-                } else {
-                    content = convertObjectToCSV(data);
-                    mimeType = 'text/csv';
-                }
-                triggerDownload(content, filename, mimeType);
-            }
-
-            function convertObjectToCSV(data) {
-                if (!data) return '';
-                // Handle Array of Objects (for attributes table)
-                if (Array.isArray(data)) {
-                    if (data.length === 0) return '';
-                    const headers = Object.keys(data[0]);
-                    const rows = data.map(row => 
-                        headers.map(header => JSON.stringify(row[header] ?? '')).join(',')
-                    );
-                    return [headers.join(','), ...rows].join('\n');
-                } 
-                // Handle Simple Key-Value Object (for breakdowns)
-                else {
-                    const headers = ['key', 'value'];
-                    const rows = Object.entries(data).map(([key, value]) => 
-                        [JSON.stringify(key), JSON.stringify(value)].join(',')
-                    );
-                     return [headers.join(','), ...rows].join('\n');
-                }
-            }
-
-            function convertToCSV(data) {
-                if (data.length === 0) return '';
-                const headers = [...allFoundAttributes];
-                const csvRows = [];
-                csvRows.push(headers.join(','));
-
-                for (const row of data) {
-                    const values = headers.map(header => {
-                        let value = row[header];
-                        if (value === null || value === undefined) {
-                            value = '';
-                        } else if (typeof value === 'object') {
-                            value = JSON.stringify(value);
-                        }
-                        const stringValue = String(value);
-                        if (stringValue.includes('"') || stringValue.includes(',')) {
-                            return `"${stringValue.replace(/"/g, '""')}"`;
-                        }
-                        return stringValue;
-                    });
-                    csvRows.push(values.join(','));
-                }
-                return csvRows.join('\n');
+                    // Reset UI
+                    if (type === 'allLogs') {
+                        UIElements.headerDownloadButton.disabled = false;
+                        UIElements.headerDownloadButton.innerText = originalText;
+                    }
+                    document.body.style.cursor = 'default';
+                };
             }
 
         });
