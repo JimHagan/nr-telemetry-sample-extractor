@@ -109,7 +109,7 @@
                         <div id="sampleCounter" class="text-xs text-gray-400"></div>
                         <div id="headerDownloadContainer" class="relative mt-2">
                             <button id="headerDownloadButton" class="flex items-center bg-gray-800 hover:bg-gray-700 text-white font-semibold py-1 px-3 rounded-md transition text-xs disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                                Download All
+                                <span>Download All</span>
                                 <svg class="w-3 h-3 ml-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
                             <div id="headerDownloadMenu" class="hidden absolute right-0 mt-2 w-32 bg-gray-900 rounded-md shadow-lg z-10 border border-gray-700">
@@ -340,57 +340,42 @@
     </div>
     
     <script>
-        // Define the background worker for memory-efficient processing
+        // Web Worker logic for non-blocking data processing
         const workerCode = `
         self.onmessage = function(e) {
             const { type, logs, attributes, format, analysisData } = e.data;
-            
             if (format === 'json') {
-                const jsonString = JSON.stringify(logs || analysisData, null, 2);
-                self.postMessage({ result: jsonString });
+                self.postMessage({ type: 'complete', result: JSON.stringify(logs || analysisData, null, 2) });
             } else if (format === 'csv') {
                 if (type === 'allLogs') {
                     const headers = Array.from(attributes);
-                    const chunks = [];
-                    chunks.push(headers.join(',') + '\\n');
-                    
-                    for (const row of logs) {
-                        const values = headers.map(header => {
-                            let value = row[header] ?? '';
-                            if (typeof value === 'object') value = JSON.stringify(value);
-                            const stringValue = String(value);
-                            return stringValue.includes('"') || stringValue.includes(',') 
-                                ? '"' + stringValue.replace(/"/g, '""') + '"' 
-                                : stringValue;
+                    const chunks = [headers.join(',') + '\\n'];
+                    for (let i = 0; i < logs.length; i++) {
+                        const values = headers.map(h => {
+                            const v = String(logs[i][h] ?? '');
+                            return v.includes('"') || v.includes(',') ? '"' + v.replace(/"/g, '""') + '"' : v;
                         });
                         chunks.push(values.join(',') + '\\n');
+                        if (i % 500 === 0) self.postMessage({ type: 'progress', percent: Math.round((i / logs.length) * 100) });
                     }
-                    self.postMessage({ result: chunks });
+                    self.postMessage({ type: 'complete', result: chunks });
                 } else {
-                    // Handle breakdown object to CSV conversion
-                    const data = analysisData;
                     let csv = '';
-                    if (Array.isArray(data)) {
-                        if (data.length > 0) {
-                            const headers = Object.keys(data[0]);
+                    if (Array.isArray(analysisData)) {
+                        if (analysisData.length > 0) {
+                            const headers = Object.keys(analysisData[0]);
                             csv += headers.join(',') + '\\n';
-                            data.forEach(row => {
-                                csv += headers.map(h => JSON.stringify(row[h] ?? '')).join(',') + '\\n';
-                            });
+                            analysisData.forEach(row => csv += headers.map(h => JSON.stringify(row[h] ?? '')).join(',') + '\\n');
                         }
                     } else {
                         csv += 'key,value\\n';
-                        Object.entries(data).forEach(([k, v]) => {
-                            csv += JSON.stringify(k) + ',' + JSON.stringify(v) + '\\n';
-                        });
+                        Object.entries(analysisData).forEach(([k, v]) => csv += JSON.stringify(k) + ',' + JSON.stringify(v) + '\\n');
                     }
-                    self.postMessage({ result: csv });
+                    self.postMessage({ type: 'complete', result: csv });
                 }
             }
-        };
-        `;
-        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-        const downloadWorker = new Worker(URL.createObjectURL(workerBlob));
+        };`;
+        const downloadWorker = new Worker(URL.createObjectURL(new Blob([workerCode], {type: 'application/javascript'})));
 
         document.addEventListener('DOMContentLoaded', () => {
             let samplingInterval;
@@ -1169,98 +1154,97 @@ For the HTML, please use a dark theme with a charcoal or dark gray background (l
 
 
             document.addEventListener('click', (e) => {
+                // --- Consolidated Menu Logic ---
+                // Get the specific toggle button that might have been clicked
                 const downloadToggle = e.target.closest('[data-download-toggle]');
                 const headerToggle = UIElements.headerDownloadButton.contains(e.target);
 
+                // If a toggle was clicked, handle its menu
                 if (downloadToggle || headerToggle) {
                     e.stopPropagation();
                     const menu = downloadToggle
                         ? document.getElementById(`downloadMenu_${downloadToggle.dataset.downloadToggle}`)
                         : UIElements.headerDownloadMenu;
                     
+                    // Hide all menus first
                     document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => {
                         if (m !== menu) m.classList.add('hidden');
                     });
                     
+                    // Then toggle the one that was clicked
                     if (menu) menu.classList.toggle('hidden');
                 
-                } else { 
+                } else { // If the click was not on a toggle, check if it was on a menu link or outside all menus
                     const downloadLink = e.target.closest('[data-download-type]');
-                    if (downloadLink && downloadLink.tagName === 'A') { 
+                    if (downloadLink && downloadLink.tagName === 'A') { // A specific analysis download link was clicked
                         e.preventDefault();
                         const type = downloadLink.dataset.downloadType;
                         const format = downloadLink.dataset.format;
-                        // Use unified background download for analysis tables too
                         downloadData(type, format);
                         downloadLink.closest('[id^="downloadMenu_"]').classList.add('hidden');
                     } else if (!e.target.closest('[id^="downloadMenu_"]') && !e.target.closest('#headerDownloadMenu')) {
+                        // The click was outside all menus, so hide them all
                         document.querySelectorAll('[id^="downloadMenu_"], #headerDownloadMenu').forEach(m => m.classList.add('hidden'));
                     }
                 }
             });
             
-            // Unified download logic using Web Worker to handle large datasets without hanging
+            // Background processing download logic
             function downloadData(type, format) {
-                const logsToProcess = (type === 'allLogs') ? allLogs : null;
-                const analysisToProcess = (type !== 'allLogs') ? (analysisDataCache[type === 'counts' ? 'counts' : (type === 'bytes' ? 'bytes' : 'attributes')]) : null;
-
-                if (type === 'allLogs' && (!logsToProcess || logsToProcess.length === 0)) {
+                if (type === 'allLogs' && allLogs.length === 0) {
                     alert("No events to download.");
                     return;
                 }
 
-                // UI Feedback
-                const originalText = (type === 'allLogs') ? UIElements.headerDownloadButton.innerText : 'Processing...';
+                const originalBtnText = UIElements.headerDownloadButton.firstChild.textContent;
                 if (type === 'allLogs') {
                     UIElements.headerDownloadButton.disabled = true;
-                    UIElements.headerDownloadButton.innerText = "Processing...";
+                    UIElements.headerDownloadButton.firstChild.textContent = "Processing 0% ";
                 }
                 document.body.style.cursor = 'wait';
 
-                // Send to background worker
                 downloadWorker.postMessage({
                     type: type,
-                    logs: logsToProcess,
-                    analysisData: analysisToProcess,
+                    logs: type === 'allLogs' ? allLogs : null,
+                    analysisData: type !== 'allLogs' ? analysisDataCache[type] : null,
                     attributes: Array.from(allFoundAttributes),
                     format: format
                 });
 
                 downloadWorker.onmessage = function(e) {
-                    const firstTsStr = allLogs.length > 0 ? new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
-                    const lastTsStr = allLogs.length > 0 ? new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
-                    const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
-                    
-                    let filename = '';
-                    if (type === 'allLogs') {
-                        filename = `${accountPart}-samples-${firstTsStr}-to-${lastTsStr}.${format}`;
-                    } else {
-                        filename = `${type}_breakdown_${Date.now()}.${format}`;
+                    if (e.data.type === 'progress') {
+                        if (type === 'allLogs') {
+                            UIElements.headerDownloadButton.firstChild.textContent = `Processing ${e.data.percent}% `;
+                        }
+                        return;
                     }
 
-                    const content = e.data.result;
-                    const mimeType = format === 'json' ? 'application/json' : 'text/csv';
-                    
-                    // Trigger actual download via memory-efficient Blob URL
-                    const blob = new Blob(Array.isArray(content) ? content : [content], { type: mimeType });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                    if (e.data.type === 'complete') {
+                        const firstTimestamp = allLogs.length > 0 ? new Date(allLogs[0].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                        const lastTimestamp = allLogs.length > 0 ? new Date(allLogs[allLogs.length - 1].timestamp).toISOString().replace(/[:.]/g, '-') : 'data';
+                        const accountPart = (accountName || 'account').toLowerCase().replace(/\s+/g, '-');
+                        
+                        let filename = type === 'allLogs' ? `${accountPart}-samples-${firstTimestamp}-to-${lastTimestamp}.${format}` : `${type}.${format}`;
+                        const mimeType = format === 'json' ? 'application/json' : 'text/csv';
 
-                    // Reset UI
-                    if (type === 'allLogs') {
-                        UIElements.headerDownloadButton.disabled = false;
-                        UIElements.headerDownloadButton.innerText = originalText;
+                        const blob = new Blob(Array.isArray(e.data.result) ? e.data.result : [e.data.result], { type: mimeType });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        if (type === 'allLogs') {
+                            UIElements.headerDownloadButton.disabled = false;
+                            UIElements.headerDownloadButton.firstChild.textContent = originalBtnText;
+                        }
+                        document.body.style.cursor = 'default';
                     }
-                    document.body.style.cursor = 'default';
                 };
             }
-
         });
     </script>
 </body>
